@@ -1,0 +1,5 @@
+node_modules
+/build/micro-eth-signer.js
+/lib
+/index.js
+/index.d.ts
