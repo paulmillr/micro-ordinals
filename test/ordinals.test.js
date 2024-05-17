@@ -3,9 +3,9 @@ import { describe, should } from 'micro-should';
 import { hex, utf8 } from '@scure/base';
 import * as btc from '@scure/btc-signer';
 import * as ordinals from '../lib/esm/index.js';
-import {TEST_NETWORK} from '@scure/btc-signer';
+import { TEST_NETWORK } from '@scure/btc-signer';
 import { schnorr as secp256k1_schnorr } from '@noble/curves/secp256k1';
-import { default as ordvectors } from './fixtures/ordinals.json' assert { type: 'json' };
+import { default as ordvectors } from './fixtures/ordinals.json' with { type: 'json' };
 
 // The file misses a bunch of valid test vectors for inscriptions.
 // There are only a few official test vectors.

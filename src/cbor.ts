@@ -35,35 +35,8 @@ const F16BE = P.wrap({
   },
 });
 
-const createView = (arr: Uint8Array) => new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
-
-const f32 = (le?: boolean) =>
-  P.wrap({
-    encodeStream(w, value: number) {
-      if (Math.fround(value) !== value) throw w.err(`f32: wrong value=${value}`);
-      const buf = new Uint8Array(4);
-      createView(buf).setFloat32(0, value, le);
-      w.bytes(buf);
-    },
-    decodeStream: (r) => createView(r.bytes(4)).getFloat32(0, le),
-  });
-
-const f64 = (le?: boolean) =>
-  P.wrap({
-    encodeStream(w, value: number) {
-      // no validation, any JS number can be encoded as float64
-      const buf = new Uint8Array(8);
-      createView(buf).setFloat64(0, value, le);
-      w.bytes(buf);
-    },
-    decodeStream: (r) => createView(r.bytes(8)).getFloat64(0, le),
-  });
-
-const F32BE = /* @__PURE__ */ f32(false); // const F32LE = /* @__PURE__ */ f32(true);
-const F64BE = /* @__PURE__ */ f64(false); // const F64LE = /* @__PURE__ */ f64(true);
-
 const INFO = P.bits(5); // additional info
-const U64LEN = P.apply(P.U64BE, P.coders.number);
+const U64LEN = P.apply(P.U64BE, P.coders.numberBigint);
 
 // Number/lengths limits
 const CBOR_LIMITS: Record<
@@ -186,10 +159,10 @@ const cborSimple: P.CoderType<boolean | null | undefined | number> = P.wrap({
     // If can be encoded as F32 without rounding
     if (Math.fround(value) === value) {
       INFO.encodeStream(w, 26);
-      return F32BE.encodeStream(w, value);
+      return P.F32BE.encodeStream(w, value);
     }
     INFO.encodeStream(w, 27);
-    return F64BE.encodeStream(w, value);
+    return P.F64BE.encodeStream(w, value);
   },
   decodeStream(r) {
     const ai = INFO.decodeStream(r);
@@ -199,8 +172,8 @@ const cborSimple: P.CoderType<boolean | null | undefined | number> = P.wrap({
     if (ai === 23) return undefined;
     // ai === 24 is P.U8 with simple, reserved
     if (ai === 25) return F16BE.decodeStream(r);
-    if (ai === 26) return F32BE.decodeStream(r);
-    if (ai === 27) return F64BE.decodeStream(r);
+    if (ai === 26) return P.F32BE.decodeStream(r);
+    if (ai === 27) return P.F64BE.decodeStream(r);
     throw r.err('cbor/simple: unassigned');
   },
 });
@@ -280,7 +253,10 @@ export const CBOR = P.apply(cborValue, {
       return { TAG: 'simple', data: data };
     }
     if (typeof data === 'object') {
-      return { TAG: 'map', data: Object.entries(data).map((kv) => kv.map((i) => this.decode(i))) };
+      return {
+        TAG: 'map',
+        data: Object.entries(data).map((kv) => kv.map((i) => this.decode(i))),
+      };
     }
     throw new Error('unknown type');
   },
