@@ -1,6 +1,6 @@
 {
   "name": "micro-ordinals",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manage ordinals, inscriptions and runes using scure-btc-signer",
   "files": ["lib", "src"],
   "bin": {
