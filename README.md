@@ -163,7 +163,7 @@ Edge cases to keep in mind:
 
 ## Testing
 
-### Exporers
+### Explorers
 
 Use [mempool](https://mempool.space/testnet) and
 [ordinalsbot](https://testnet-explorer.ordinalsbot.com).
