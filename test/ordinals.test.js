@@ -1,4 +1,4 @@
-import { deepStrictEqual } from 'node:assert';
+import { deepStrictEqual, strictEqual } from 'node:assert';
 import { describe, should } from 'micro-should';
 import { hex, utf8 } from '@scure/base';
 import * as btc from '@scure/btc-signer';
@@ -66,6 +66,17 @@ describe('Ordinals', () => {
       deepStrictEqual(TagCoder.encode(TagCoder.decode({ parent: vector })), { parent: vector });
     });
   });
+
+  should('support explicit pointer 0', () => {
+    const { TagCoder } = ordinals.__test__;
+    const encoded = TagCoder.decode({ pointer: 0n });
+
+    const encodedTag = encoded[0].tag[0]
+    const encodedValue = encoded[0].data[0]
+
+    strictEqual(encodedTag, 2);
+    strictEqual(encodedValue, 0);
+  })
 
   should('inscription/11820782', () => {
     // https://ordiscan.com/inscription/11820782
