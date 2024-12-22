@@ -113,7 +113,13 @@ const TagCoder: P.Coder<TagRaw[], Tags> = {
         for (const p of to.parent) res.push({ tag: tagName, data: TagCoders.parent.encode(p) });
         continue;
       }
-      const bytes = TagCoders[field as TagName].encode(to[field as TagName]);
+      let bytes = TagCoders[field as TagName].encode(to[field as TagName]);
+
+      // Handle pointer = 0:
+      if (field === 'pointer' && bytes.length === 0) {
+        bytes = new Uint8Array([0]);
+      }
+
       for (const data of splitChunks(bytes)) res.push({ tag: tagName, data });
     }
     if (to.unknown) {
