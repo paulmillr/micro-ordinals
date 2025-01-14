@@ -4,4 +4,4 @@ import './cbor.test.js';
 import './ordinals.test.js';
 import './cli.test.js';
 
-should.run();
+should.runWhen(import.meta.url);
