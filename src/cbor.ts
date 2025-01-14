@@ -1,5 +1,5 @@
-import * as P from 'micro-packed';
-import { utils } from '@scure/btc-signer';
+import * as P from "micro-packed";
+import { utils } from "@scure/btc-signer";
 
 type Bytes = Uint8Array;
 
@@ -20,7 +20,7 @@ const F16BE = P.wrap({
     if (value === -Infinity) return w.bytes(new Uint8Array([0xfc, 0x00]));
     if (Number.isNaN(value)) return w.bytes(new Uint8Array([0x7e, 0x00]));
     if (isNegZero(value)) return w.bytes(new Uint8Array([0x80, 0x00]));
-    throw w.err('f16: not implemented');
+    throw w.err("f16: not implemented");
   },
   decodeStream: (r) => {
     // decode_half from RFC 8949
@@ -41,7 +41,11 @@ const U64LEN = P.apply(P.U64BE, P.coders.numberBigint);
 // Number/lengths limits
 const CBOR_LIMITS: Record<
   number,
-  [number | bigint, P.CoderType<number> | P.CoderType<bigint>, P.CoderType<number>]
+  [
+    number | bigint,
+    P.CoderType<number> | P.CoderType<bigint>,
+    P.CoderType<number>,
+  ]
 > = {
   24: [2 ** 8 - 1, P.U8, P.U8],
   25: [2 ** 16 - 1, P.U16BE, P.U16BE],
@@ -51,7 +55,11 @@ const CBOR_LIMITS: Record<
 
 const cborUint = P.wrap({
   encodeStream(w, value: number | bigint) {
-    if (value < 24) return INFO.encodeStream(w, typeof value === 'bigint' ? Number(value) : value);
+    if (value < 24)
+      return INFO.encodeStream(
+        w,
+        typeof value === "bigint" ? Number(value) : value,
+      );
     for (const ai in CBOR_LIMITS) {
       const [limit, intCoder, _] = CBOR_LIMITS[ai];
       if (value > limit) continue;
@@ -71,10 +79,10 @@ const cborUint = P.wrap({
 
 const cborNegint = P.wrap({
   encodeStream: (w, v: number | bigint) =>
-    cborUint.encodeStream(w, typeof v === 'bigint' ? -(v + 1n) : -(v + 1)),
+    cborUint.encodeStream(w, typeof v === "bigint" ? -(v + 1n) : -(v + 1)),
   decodeStream(r) {
     const v = cborUint.decodeStream(r);
-    return typeof v === 'bigint' ? -1n - v : -1 - v;
+    return typeof v === "bigint" ? -1n - v : -1 - v;
   },
 });
 
@@ -100,7 +108,8 @@ const cborArrLength = <T>(inner: P.CoderType<T>): P.CoderType<T[]> =>
       const ai = INFO.decodeStream(r);
       if (ai < 24) return P.array(ai, inner).decodeStream(r);
       // array can have indefinite-length
-      if (ai === 31) return P.array(new Uint8Array([0xff]), inner).decodeStream(r);
+      if (ai === 31)
+        return P.array(new Uint8Array([0xff]), inner).decodeStream(r);
       const lenCoder = CBOR_LIMITS[ai][2];
       if (!lenCoder) throw r.err(`cbor/lengthArray wrong length=${ai}`);
       return P.array(lenCoder, inner).decodeStream(r);
@@ -116,7 +125,9 @@ const cborLength = <T>(
   P.wrap({
     encodeStream(w, value: T | T[]) {
       if (Array.isArray(value))
-        throw new Error('cbor/length: encoding indefinite-length strings not supported');
+        throw new Error(
+          "cbor/length: encoding indefinite-length strings not supported",
+        );
       const bytes = fn(null).encode(value);
       if (bytes.length < 24) {
         INFO.encodeStream(w, bytes.length);
@@ -137,7 +148,8 @@ const cborLength = <T>(
     decodeStream(r): T | T[] {
       const ai = INFO.decodeStream(r);
       if (ai < 24) return fn(ai).decodeStream(r);
-      if (ai === 31) return P.array(new Uint8Array([0xff]), def).decodeStream(r);
+      if (ai === 31)
+        return P.array(new Uint8Array([0xff]), def).decodeStream(r);
       const lenCoder = CBOR_LIMITS[ai][2];
       if (!lenCoder) throw r.err(`cbor/length wrong length=${ai}`);
       return fn(lenCoder).decodeStream(r);
@@ -150,9 +162,15 @@ const cborSimple: P.CoderType<boolean | null | undefined | number> = P.wrap({
     if (value === true) return INFO.encodeStream(w, 21);
     if (value === null) return INFO.encodeStream(w, 22);
     if (value === undefined) return INFO.encodeStream(w, 23);
-    if (typeof value !== 'number') throw w.err(`cbor/simple: wrong value type=${typeof value}`);
+    if (typeof value !== "number")
+      throw w.err(`cbor/simple: wrong value type=${typeof value}`);
     // Basic values encoded as f16
-    if (isNegZero(value) || Number.isNaN(value) || value === Infinity || value === -Infinity) {
+    if (
+      isNegZero(value) ||
+      Number.isNaN(value) ||
+      value === Infinity ||
+      value === -Infinity
+    ) {
       INFO.encodeStream(w, 25);
       return F16BE.encodeStream(w, value);
     }
@@ -174,19 +192,19 @@ const cborSimple: P.CoderType<boolean | null | undefined | number> = P.wrap({
     if (ai === 25) return F16BE.decodeStream(r);
     if (ai === 26) return P.F32BE.decodeStream(r);
     if (ai === 27) return P.F64BE.decodeStream(r);
-    throw r.err('cbor/simple: unassigned');
+    throw r.err("cbor/simple: unassigned");
   },
 });
 
 export type CborValue =
-  | { TAG: 'uint'; data: number | bigint }
-  | { TAG: 'negint'; data: number | bigint }
-  | { TAG: 'simple'; data: boolean | null | undefined | number }
-  | { TAG: 'string'; data: string }
-  | { TAG: 'bytes'; data: Bytes }
-  | { TAG: 'array'; data: CborValue[] }
-  | { TAG: 'map'; data: [CborValue][] }
-  | { TAG: 'tag'; data: [CborValue, CborValue] };
+  | { TAG: "uint"; data: number | bigint }
+  | { TAG: "negint"; data: number | bigint }
+  | { TAG: "simple"; data: boolean | null | undefined | number }
+  | { TAG: "string"; data: string }
+  | { TAG: "bytes"; data: Bytes }
+  | { TAG: "array"; data: CborValue[] }
+  | { TAG: "map"; data: [CborValue][] }
+  | { TAG: "tag"; data: [CborValue, CborValue] };
 
 const cborValue: P.CoderType<CborValue> = P.mappedTag(P.bits(3), {
   uint: [0, cborUint], // An unsigned integer in the range 0..264-1 inclusive.
@@ -202,62 +220,72 @@ const cborValue: P.CoderType<CborValue> = P.mappedTag(P.bits(3), {
 export const CBOR = P.apply(cborValue, {
   encode(from: CborValue): any {
     let value = from.data;
-    if (from.TAG === 'bytes') {
+    if (from.TAG === "bytes") {
       if (utils.isBytes(value)) return value;
       const chunks = [];
       if (!Array.isArray(value))
         throw new Error(`CBOR: wrong indefinite-length bytestring=${value}`);
       for (const c of value as any) {
-        if (c.TAG !== 'bytes' || !utils.isBytes(c.data))
+        if (c.TAG !== "bytes" || !utils.isBytes(c.data))
           throw new Error(`CBOR: wrong indefinite-length bytestring=${c}`);
         chunks.push(c.data);
       }
       return utils.concatBytes(...chunks);
     }
-    if (from.TAG === 'string') {
-      if (typeof value === 'string') return value;
-      if (!Array.isArray(value)) throw new Error(`CBOR: wrong indefinite-length string=${value}`);
-      let res = '';
+    if (from.TAG === "string") {
+      if (typeof value === "string") return value;
+      if (!Array.isArray(value))
+        throw new Error(`CBOR: wrong indefinite-length string=${value}`);
+      let res = "";
       for (const c of value as any) {
-        if (c.TAG !== 'string' || typeof c.data !== 'string')
+        if (c.TAG !== "string" || typeof c.data !== "string")
           throw new Error(`CBOR: wrong indefinite-length string=${c}`);
         res += c.data;
       }
       return res;
     }
-    if (from.TAG === 'array' && Array.isArray(value)) value = value.map((i: any) => this.encode(i));
-    if (from.TAG === 'map' && typeof value === 'object' && value !== null) {
+    if (from.TAG === "array" && Array.isArray(value))
+      value = value.map((i: any) => this.encode(i));
+    if (from.TAG === "map" && typeof value === "object" && value !== null) {
       return Object.fromEntries(
-        (from.data as any).map(([k, v]: [any, any]) => [this.encode(k), this.encode(v)]),
+        (from.data as any).map(([k, v]: [any, any]) => [
+          this.encode(k),
+          this.encode(v),
+        ]),
       );
     }
-    if (from.TAG === 'tag') throw new Error('not implemented');
+    if (from.TAG === "tag") throw new Error("not implemented");
     return value;
   },
   decode(data: any): any {
-    if (typeof data === 'bigint') {
-      return data < 0n ? { TAG: 'negint', data } : { TAG: 'uint', data };
+    if (typeof data === "bigint") {
+      return data < 0n ? { TAG: "negint", data } : { TAG: "uint", data };
     }
-    if (typeof data === 'string') return { TAG: 'string', data };
-    if (utils.isBytes(data)) return { TAG: 'bytes', data };
-    if (Array.isArray(data)) return { TAG: 'array', data: data.map((i) => this.decode(i)) };
-    if (typeof data === 'number' && Number.isSafeInteger(data) && !isNegZero(data)) {
-      return data < 0 ? { TAG: 'negint', data } : { TAG: 'uint', data };
+    if (typeof data === "string") return { TAG: "string", data };
+    if (utils.isBytes(data)) return { TAG: "bytes", data };
+    if (Array.isArray(data))
+      return { TAG: "array", data: data.map((i) => this.decode(i)) };
+    if (
+      typeof data === "number" &&
+      Number.isSafeInteger(data) &&
+      !isNegZero(data)
+    ) {
+      return data < 0 ? { TAG: "negint", data } : { TAG: "uint", data };
     }
     if (
-      typeof data === 'boolean' ||
-      typeof data === 'number' ||
+      typeof data === "boolean" ||
+      typeof data === "number" ||
       data === null ||
       data === undefined
     ) {
-      return { TAG: 'simple', data: data };
+      return { TAG: "simple", data: data };
     }
-    if (typeof data === 'object') {
+    if (typeof data === "object") {
       return {
-        TAG: 'map',
+        TAG: "map",
         data: Object.entries(data).map((kv) => kv.map((i) => this.decode(i))),
       };
     }
-    throw new Error('unknown type');
+    throw new Error("unknown type");
   },
 });

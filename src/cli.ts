@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { constants as zlibc, brotliCompressSync } from 'node:zlib';
-import { extname } from 'node:path';
-import { lstatSync, realpathSync, readFileSync } from 'node:fs';
+import { constants as zlibc, brotliCompressSync } from "node:zlib";
+import { extname } from "node:path";
+import { lstatSync, realpathSync, readFileSync } from "node:fs";
 
 // @ts-ignore
-import Input from 'enquirer/lib/prompts/input.js';
+import Input from "enquirer/lib/prompts/input.js";
 // @ts-ignore
-import Select from 'enquirer/lib/prompts/select.js';
-import { hex } from '@scure/base';
+import Select from "enquirer/lib/prompts/select.js";
+import { hex } from "@scure/base";
 import {
   Address,
   Decimal,
@@ -17,20 +17,24 @@ import {
   NETWORK,
   TEST_NETWORK,
   utils,
-} from '@scure/btc-signer';
-import { Inscription, OutOrdinalReveal, p2tr_ord_reveal } from './index.js';
+} from "@scure/btc-signer";
+import { Inscription, OutOrdinalReveal, p2tr_ord_reveal } from "./index.js";
 /*
 
 */
 
-const { BROTLI_MODE_GENERIC: B_GENR, BROTLI_MODE_TEXT: B_TEXT, BROTLI_MODE_FONT } = zlibc;
+const {
+  BROTLI_MODE_GENERIC: B_GENR,
+  BROTLI_MODE_TEXT: B_TEXT,
+  BROTLI_MODE_FONT,
+} = zlibc;
 // Max script limit.
 // Bitcoin core node won't relay transaction with bigger limit, even if they possible.
 // https://github.com/bitcoin/bitcoin/blob/d908877c4774c2456eed09167a5f382758e4a8a6/src/policy/policy.h#L26-L27
 const MAX_STANDARD_TX_WEIGHT = 400000; // 4 * 100kvb
 const DUST_RELAY_TX_FEE = 3000n; // won't relay if less than this in fees?
 const customScripts = [OutOrdinalReveal];
-const ZERO_32B = '00'.repeat(32);
+const ZERO_32B = "00".repeat(32);
 
 // Utils
 type Opts = Record<string, string>;
@@ -39,10 +43,12 @@ export function splitArgs(args: string[]): { args: string[]; opts: Opts } {
   const opts: Opts = {};
   for (let i = 0; i < args.length; i++) {
     const cur = args[i];
-    if (cur.startsWith('--')) {
-      if (i + 1 >= args.length) throw new Error(`arguments: no value for ${cur}`);
+    if (cur.startsWith("--")) {
+      if (i + 1 >= args.length)
+        throw new Error(`arguments: no value for ${cur}`);
       const next = args[++i];
-      if (next.startsWith('--')) throw new Error(`arguments: no value for ${cur}, got ${next}`);
+      if (next.startsWith("--"))
+        throw new Error(`arguments: no value for ${cur}, got ${next}`);
       opts[cur.slice(2)] = next;
       continue;
     }
@@ -60,7 +66,8 @@ const validateFloat = (s: string) => {
 const validateTxid = (s: string) => {
   try {
     const txid = hex.decode(s);
-    if (txid.length !== 32) return `wrong length ${txid.length}, expected 32 bytes`;
+    if (txid.length !== 32)
+      return `wrong length ${txid.length}, expected 32 bytes`;
     return true;
   } catch (e) {
     return `${e}`;
@@ -88,13 +95,13 @@ const validateAmount = (s: string) => {
 
 // UI
 // const underline = '\x1b[4m';
-const bold = '\x1b[1m';
+const bold = "\x1b[1m";
 // const gray = '\x1b[90m';
-const reset = '\x1b[0m';
-const red = '\x1b[31m';
-const green = '\x1b[32m';
+const reset = "\x1b[0m";
+const red = "\x1b[31m";
+const green = "\x1b[32m";
 // const yellow = '\x1b[33m';
-const magenta = '\x1b[35m';
+const magenta = "\x1b[35m";
 
 const HELP_TEXT = `
 - ${bold}net:${reset} bitcoin network
@@ -110,7 +117,9 @@ const HELP_TEXT = `
 ${bold}Important:${reset} first sat is always inscribed. Batch inscriptions are not supported.
 `;
 
-type InputValidate = (input: string) => boolean | string | Promise<boolean | string>;
+type InputValidate = (
+  input: string,
+) => boolean | string | Promise<boolean | string>;
 
 export const select = async (message: string, choices: string[]) => {
   try {
@@ -131,8 +140,12 @@ export async function input(message: string, validate?: InputValidate) {
 }
 
 declare const navigator: any;
-const defaultLang = typeof navigator === 'object' ? navigator.language : undefined;
-const bfmt = new Intl.NumberFormat(defaultLang, { style: 'unit', unit: 'byte' });
+const defaultLang =
+  typeof navigator === "object" ? navigator.language : undefined;
+const bfmt = new Intl.NumberFormat(defaultLang, {
+  style: "unit",
+  unit: "byte",
+});
 
 const formatBytes = (n: number) => `${magenta}${bfmt.format(n)}${reset}`;
 const formatSatoshi = (n: bigint) =>
@@ -195,7 +208,7 @@ const usage = (err?: Error | string) => {
   if (err) console.error(`${red}ERROR${reset}: ${err}`);
   console.log(
     `Usage: ${green}ord-cli${reset} [--net ${Object.keys(NETWORKS).join(
-      '|',
+      "|",
     )}] [--priv key] [--recovery key] [--compress=on|off] [--fee 10.1] [--addr address] <path>`,
   );
   console.log(HELP_TEXT);
@@ -203,16 +216,21 @@ const usage = (err?: Error | string) => {
 };
 
 async function getNetwork(opts: Opts) {
-  if (!opts.net) opts.net = await select('Network', ['testnet', 'mainnet']);
+  if (!opts.net) opts.net = await select("Network", ["testnet", "mainnet"]);
   const NET = NETWORKS[opts.net];
-  if (typeof opts.net !== 'string' || !NET)
-    return usage(`wrong network ${opts.net}. Expected: ${Object.keys(NETWORKS).join(', ')}`);
+  if (typeof opts.net !== "string" || !NET)
+    return usage(
+      `wrong network ${opts.net}. Expected: ${Object.keys(NETWORKS).join(", ")}`,
+    );
   console.log(`${bold}Network:${reset} ${NET.name}`);
   return NET;
 }
 
 function getKeys(net: NET, opts: Opts) {
-  const KEYS: Record<string, string> = { priv: 'Temporary', recovery: 'Recovery' };
+  const KEYS: Record<string, string> = {
+    priv: "Temporary",
+    recovery: "Recovery",
+  };
   const res: Record<string, Uint8Array> = {};
   for (const name in KEYS) {
     // We can probably can do taproot tweak,
@@ -221,7 +239,9 @@ function getKeys(net: NET, opts: Opts) {
     if (opts[name]) res[name] = WIF(net).decode(opts.priv);
     else {
       res[name] = utils.randomPrivateKeyBytes();
-      console.log(`${KEYS[name]} private key: ${red}${WIF(net).encode(res[name])}${reset}`);
+      console.log(
+        `${KEYS[name]} private key: ${red}${WIF(net).encode(res[name])}${reset}`,
+      );
     }
     if (res[name].length !== 32) {
       return usage(
@@ -247,7 +267,7 @@ function getInscription(filePath: string, opts: Opts) {
   let data = Uint8Array.from(readFileSync(filePath, null));
   let inscription: Inscription = { tags: { contentType: mime }, body: data };
   info.push(`size=${formatBytes(data.length)}`);
-  if (!opts.compress || opts.compress !== 'off') {
+  if (!opts.compress || opts.compress !== "off") {
     const compressed = brotliCompressSync(data, {
       params: {
         [zlibc.BROTLI_PARAM_MODE]: brotliMode,
@@ -259,12 +279,17 @@ function getInscription(filePath: string, opts: Opts) {
     if (data.length > compressed.length) {
       data = compressed;
       info.push(`compressed_size=${formatBytes(data.length)}`);
-      inscription = { tags: { contentType: mime, contentEncoding: 'br' }, body: data };
+      inscription = {
+        tags: { contentType: mime, contentEncoding: "br" },
+        body: data,
+      };
     }
   } else info.push(`${red}uncompressed${reset}`); // notify user that compression disabled
   if (data.length > MAX_STANDARD_TX_WEIGHT)
-    return usage(`File is too big ${data.length}. Limit ${MAX_STANDARD_TX_WEIGHT}`);
-  console.log(`${bold}File:${reset} ${filePath} (${info.join(', ')})`);
+    return usage(
+      `File is too big ${data.length}. Limit ${MAX_STANDARD_TX_WEIGHT}`,
+    );
+  console.log(`${bold}File:${reset} ${filePath} (${info.join(", ")})`);
   return inscription;
 }
 
@@ -286,15 +311,29 @@ async function getAddr(net: NET, opts: Opts) {
     }
   };
   if (!address)
-    address = await input('Change address (where inscription will be sent on reveal)', validate);
+    address = await input(
+      "Change address (where inscription will be sent on reveal)",
+      validate,
+    );
   if (validate(address) !== true) return usage(`wrong address=${address}`);
   return address;
 }
 
-function getPayment(privKey: Uint8Array, recovery: Uint8Array, inscription: Inscription, net: NET) {
+function getPayment(
+  privKey: Uint8Array,
+  recovery: Uint8Array,
+  inscription: Inscription,
+  net: NET,
+) {
   const pubKey = utils.pubSchnorr(privKey);
   const recoveryPub = utils.pubSchnorr(recovery);
-  return p2tr(recoveryPub, p2tr_ord_reveal(pubKey, [inscription]), net, false, customScripts);
+  return p2tr(
+    recoveryPub,
+    p2tr_ord_reveal(pubKey, [inscription]),
+    net,
+    false,
+    customScripts,
+  );
 }
 
 function getTransaction(
@@ -325,9 +364,10 @@ async function main() {
     const argv = process.argv;
     // @ts-ignore
     if (import.meta.url !== `file://${realpathSync(argv[1])}`) return; // ESM is broken.
-    if (argv.length < 3) return usage('Wrong argument count'); // node script file
+    if (argv.length < 3) return usage("Wrong argument count"); // node script file
     const { args, opts } = splitArgs(argv.slice(2));
-    if (args.length !== 1) return usage(`only single file supported, got ${args.length}`);
+    if (args.length !== 1)
+      return usage(`only single file supported, got ${args.length}`);
     const net = await getNetwork(opts);
     const inscription = getInscription(args[0], opts);
     const { priv, recovery } = getKeys(net, opts);
@@ -336,7 +376,16 @@ async function main() {
     // Actual logic
     const payment = getPayment(priv, recovery, inscription, net);
     // dummy tx to estimate fees and tx size
-    const dummyTx = getTransaction(priv, addr, payment, net, ZERO_32B, 0, DUST_RELAY_TX_FEE, 1n);
+    const dummyTx = getTransaction(
+      priv,
+      addr,
+      payment,
+      net,
+      ZERO_32B,
+      0,
+      DUST_RELAY_TX_FEE,
+      1n,
+    );
     if (dummyTx.weight >= MAX_STANDARD_TX_WEIGHT) {
       return usage(
         `File is too big: reveal transaction weight (${dummyTx.weight}) is higher than limit (${MAX_STANDARD_TX_WEIGHT})`,
@@ -355,15 +404,24 @@ async function main() {
       )}`,
     );
     // Ask for UTXO
-    console.log('Please enter UTXO information for transaction you sent:');
+    console.log("Please enter UTXO information for transaction you sent:");
     // These fields cannot be known before we send tx,
     // and to send tx user needs an address of inscription
-    const txid = await input('Txid', validateTxid);
-    const index = Number.parseInt(await input('Index', validateIndex));
-    const amount = Decimal.decode(await input('Amount', validateAmount));
+    const txid = await input("Txid", validateTxid);
+    const index = Number.parseInt(await input("Index", validateIndex));
+    const amount = Decimal.decode(await input("Amount", validateAmount));
     // Real reveal transaction
-    const tx = getTransaction(priv, addr, payment, net, txid, index, amount, txFee);
-    console.log('Reveal transaction created.');
+    const tx = getTransaction(
+      priv,
+      addr,
+      payment,
+      net,
+      txid,
+      index,
+      amount,
+      txFee,
+    );
+    console.log("Reveal transaction created.");
     console.log(`${bold}Txid:${reset} ${tx.id}`);
     console.log(`${bold}Tx:${reset}`);
     console.log(hex.encode(tx.extract()));
