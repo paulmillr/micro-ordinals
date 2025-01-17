@@ -28,7 +28,7 @@
     "typescript": "5.5.2"
   },
   "scripts": {
-    "build": "tsc && tsc -p tsconfig.esm.json",
+    "build": "tsc && tsc -p tsconfig.cjs.json",
     "build:release": "cd build; npm run build:release",
     "lint": "prettier --check src",
     "format": "prettier --write src",
