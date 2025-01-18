@@ -1,5 +1,5 @@
-import * as P from "micro-packed";
 import { utils } from "@scure/btc-signer";
+import * as P from "micro-packed";
 
 type Bytes = Uint8Array;
 
@@ -58,7 +58,7 @@ const cborUint = P.wrap({
     if (value < 24)
       return INFO.encodeStream(
         w,
-        typeof value === "bigint" ? Number(value) : value,
+        typeof value === "bigint" ? Number(value) : value
       );
     for (const ai in CBOR_LIMITS) {
       const [limit, intCoder, _] = CBOR_LIMITS[ai];
@@ -120,13 +120,13 @@ const cborArrLength = <T>(inner: P.CoderType<T>): P.CoderType<T[]> =>
 const cborLength = <T>(
   fn: (len: P.Length) => P.CoderType<T>,
   // Indefinity-length strings accept other elements with different types, we validate that later
-  def: P.CoderType<any>,
+  def: P.CoderType<any>
 ): P.CoderType<T | T[]> =>
   P.wrap({
     encodeStream(w, value: T | T[]) {
       if (Array.isArray(value))
         throw new Error(
-          "cbor/length: encoding indefinite-length strings not supported",
+          "cbor/length: encoding indefinite-length strings not supported"
         );
       const bytes = fn(null).encode(value);
       if (bytes.length < 24) {
@@ -217,7 +217,7 @@ const cborValue: P.CoderType<CborValue> = P.mappedTag(P.bits(3), {
   simple: [7, cborSimple], // Floating-point numbers and simple values, as well as the "break" stop code
 });
 
-export const CBOR = P.apply(cborValue, {
+export const CBOR: P.CoderType<any> = P.apply(cborValue, {
   encode(from: CborValue): any {
     let value = from.data;
     if (from.TAG === "bytes") {
@@ -251,7 +251,7 @@ export const CBOR = P.apply(cborValue, {
         (from.data as any).map(([k, v]: [any, any]) => [
           this.encode(k),
           this.encode(v),
-        ]),
+        ])
       );
     }
     if (from.TAG === "tag") throw new Error("not implemented");

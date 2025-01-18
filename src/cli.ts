@@ -1,24 +1,29 @@
 #!/usr/bin/env node
-import { constants as zlibc, brotliCompressSync } from "node:zlib";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { extname } from "node:path";
-import { lstatSync, realpathSync, readFileSync } from "node:fs";
+import { brotliCompressSync, constants as zlibc } from "node:zlib";
 
 // @ts-ignore
 import Input from "enquirer/lib/prompts/input.js";
 // @ts-ignore
-import Select from "enquirer/lib/prompts/select.js";
 import { hex } from "@scure/base";
 import {
   Address,
   Decimal,
+  NETWORK,
+  TEST_NETWORK,
   Transaction,
   WIF,
   p2tr,
-  NETWORK,
-  TEST_NETWORK,
   utils,
 } from "@scure/btc-signer";
-import { Inscription, OutOrdinalReveal, p2tr_ord_reveal } from "./index.js";
+// @ts-ignore
+import Select from "enquirer/lib/prompts/select.js";
+import {
+  type Inscription,
+  OutOrdinalReveal,
+  p2tr_ord_reveal,
+} from "./index.js";
 /*
 
 */
@@ -118,10 +123,13 @@ ${bold}Important:${reset} first sat is always inscribed. Batch inscriptions are 
 `;
 
 type InputValidate = (
-  input: string,
+  input: string
 ) => boolean | string | Promise<boolean | string>;
 
-export const select = async (message: string, choices: string[]) => {
+export const select = async (
+  message: string,
+  choices: string[]
+): Promise<any> => {
   try {
     return await new Select({ message, choices }).run();
   } catch (e) {
@@ -129,7 +137,10 @@ export const select = async (message: string, choices: string[]) => {
   }
 };
 
-export async function input(message: string, validate?: InputValidate) {
+export async function input(
+  message: string,
+  validate?: InputValidate
+): Promise<any> {
   let opts: { message: string; validate?: InputValidate } = { message };
   if (validate) opts.validate = validate;
   try {
@@ -208,8 +219,8 @@ const usage = (err?: Error | string) => {
   if (err) console.error(`${red}ERROR${reset}: ${err}`);
   console.log(
     `Usage: ${green}ord-cli${reset} [--net ${Object.keys(NETWORKS).join(
-      "|",
-    )}] [--priv key] [--recovery key] [--compress=on|off] [--fee 10.1] [--addr address] <path>`,
+      "|"
+    )}] [--priv key] [--recovery key] [--compress=on|off] [--fee 10.1] [--addr address] <path>`
   );
   console.log(HELP_TEXT);
   process.exit();
@@ -220,7 +231,7 @@ async function getNetwork(opts: Opts) {
   const NET = NETWORKS[opts.net];
   if (typeof opts.net !== "string" || !NET)
     return usage(
-      `wrong network ${opts.net}. Expected: ${Object.keys(NETWORKS).join(", ")}`,
+      `wrong network ${opts.net}. Expected: ${Object.keys(NETWORKS).join(", ")}`
     );
   console.log(`${bold}Network:${reset} ${NET.name}`);
   return NET;
@@ -240,17 +251,17 @@ function getKeys(net: NET, opts: Opts) {
     else {
       res[name] = utils.randomPrivateKeyBytes();
       console.log(
-        `${KEYS[name]} private key: ${red}${WIF(net).encode(res[name])}${reset}`,
+        `${KEYS[name]} private key: ${red}${WIF(net).encode(res[name])}${reset}`
       );
     }
     if (res[name].length !== 32) {
       return usage(
-        `wrong ${KEYS[name].toLowerCase()} private key, expected 32-bytes, got ${res[name].length}`,
+        `wrong ${KEYS[name].toLowerCase()} private key, expected 32-bytes, got ${res[name].length}`
       );
     }
   }
   console.log(
-    `${bold}Important:${reset} if there is an issue with reveal transaction, you will need these keys to refund sent coins`,
+    `${bold}Important:${reset} if there is an issue with reveal transaction, you will need these keys to refund sent coins`
   );
   return res as { priv: Uint8Array; recovery: Uint8Array };
 }
@@ -287,7 +298,7 @@ function getInscription(filePath: string, opts: Opts) {
   } else info.push(`${red}uncompressed${reset}`); // notify user that compression disabled
   if (data.length > MAX_STANDARD_TX_WEIGHT)
     return usage(
-      `File is too big ${data.length}. Limit ${MAX_STANDARD_TX_WEIGHT}`,
+      `File is too big ${data.length}. Limit ${MAX_STANDARD_TX_WEIGHT}`
     );
   console.log(`${bold}File:${reset} ${filePath} (${info.join(", ")})`);
   return inscription;
@@ -313,7 +324,7 @@ async function getAddr(net: NET, opts: Opts) {
   if (!address)
     address = await input(
       "Change address (where inscription will be sent on reveal)",
-      validate,
+      validate
     );
   if (validate(address) !== true) return usage(`wrong address=${address}`);
   return address;
@@ -323,7 +334,7 @@ function getPayment(
   privKey: Uint8Array,
   recovery: Uint8Array,
   inscription: Inscription,
-  net: NET,
+  net: NET
 ) {
   const pubKey = utils.pubSchnorr(privKey);
   const recoveryPub = utils.pubSchnorr(recovery);
@@ -332,7 +343,7 @@ function getPayment(
     p2tr_ord_reveal(pubKey, [inscription]),
     net,
     false,
-    customScripts,
+    customScripts
   );
 }
 
@@ -344,7 +355,7 @@ function getTransaction(
   txid: string,
   index: number,
   amount: bigint,
-  fee: bigint,
+  fee: bigint
 ) {
   const tx = new Transaction({ customScripts });
   tx.addInput({
@@ -384,11 +395,11 @@ async function main() {
       ZERO_32B,
       0,
       DUST_RELAY_TX_FEE,
-      1n,
+      1n
     );
     if (dummyTx.weight >= MAX_STANDARD_TX_WEIGHT) {
       return usage(
-        `File is too big: reveal transaction weight (${dummyTx.weight}) is higher than limit (${MAX_STANDARD_TX_WEIGHT})`,
+        `File is too big: reveal transaction weight (${dummyTx.weight}) is higher than limit (${MAX_STANDARD_TX_WEIGHT})`
       );
     }
     const txFee = BigInt(Math.floor(dummyTx.vsize * fee));
@@ -400,8 +411,8 @@ async function main() {
     const minAmount = DUST_RELAY_TX_FEE + txFee;
     console.log(
       `Created. Please send at least ${formatSatoshi(minAmount)} to ${formatAddress(
-        payment.address!,
-      )}`,
+        payment.address!
+      )}`
     );
     // Ask for UTXO
     console.log("Please enter UTXO information for transaction you sent:");
@@ -419,7 +430,7 @@ async function main() {
       txid,
       index,
       amount,
-      txFee,
+      txFee
     );
     console.log("Reveal transaction created.");
     console.log(`${bold}Txid:${reset} ${tx.id}`);
@@ -427,11 +438,11 @@ async function main() {
     console.log(hex.encode(tx.extract()));
     console.log(
       `Please broadcast this transaction to reveal inscription and transfer to your address (${formatAddress(
-        addr,
-      )})`,
+        addr
+      )})`
     );
     console.log(
-      `${bold}Important:${reset} please freeze this UTXO in your wallet when received to avoid sending inscription as fees for other transactions.`,
+      `${bold}Important:${reset} please freeze this UTXO in your wallet when received to avoid sending inscription as fees for other transactions.`
     );
   } catch (e) {
     return usage(e as Error);

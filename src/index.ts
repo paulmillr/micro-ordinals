@@ -1,13 +1,13 @@
-import { Coder, hex, utf8 } from "@scure/base";
-import * as P from "micro-packed";
+import { type Coder, hex, utf8 } from "@scure/base";
 import {
-  Script,
-  ScriptType,
-  OptScript,
-  CustomScript,
+  type CustomScript,
   MAX_SCRIPT_BYTE_LENGTH,
+  type OptScript,
+  Script,
+  type ScriptType,
   utils,
 } from "@scure/btc-signer";
+import * as P from "micro-packed";
 import { CBOR } from "./cbor.js";
 
 type Bytes = Uint8Array;
@@ -59,8 +59,19 @@ const TagEnum = {
 const TagCoderInternal = /* @__PURE__ */ P.map(P.U8, TagEnum);
 type TagName = keyof typeof TagEnum;
 type TagRaw = { tag: Bytes; data: Bytes };
+export type TagCodersType = {
+  pointer: P.CoderType<bigint>; // U64
+  contentType: P.CoderType<string>;
+  parent: P.Coder<string, Uint8Array>;
+  metadata: P.CoderType<any>;
+  metaprotocol: P.CoderType<string>;
+  contentEncoding: P.CoderType<string>;
+  delegate: P.Coder<string, Uint8Array>;
+  rune: P.CoderType<bigint>; // U128
+  note: P.CoderType<string>;
+};
 
-const TagCoders = /* @__PURE__ */ {
+const TagCoders: TagCodersType = /* @__PURE__ */ {
   pointer: P.bigint(8, true, false, false), // U64
   contentType: P.string(null),
   parent: InscriptionId,
@@ -99,12 +110,12 @@ const TagCoder: P.Coder<TagRaw[], Tags> = {
     for (const field in tmp) {
       if (field === "parent" && tmp[field].length > 1) {
         res[field as TagName] = tmp[field].map((i) =>
-          TagCoders.parent.decode(i),
+          TagCoders.parent.decode(i)
         );
         continue;
       }
       res[field as TagName] = TagCoders[field as TagName].decode(
-        utils.concatBytes(...tmp[field]),
+        utils.concatBytes(...tmp[field])
       );
     }
     return res as Tags;
@@ -198,7 +209,7 @@ const parseEnvelopes = (script: ScriptType, pos = 0) => {
 // Additional API for parsing inscriptions
 export function parseInscriptions(
   script: ScriptType,
-  strict = false,
+  strict = false
 ): Inscription[] | undefined {
   if (strict && (!utils.isBytes(script[0]) || script[0].length !== 32)) return;
   if (strict && script[1] !== "CHECKSIG") return;
@@ -292,7 +303,10 @@ export const OutOrdinalReveal: Coder<
  * Create reveal transaction. Inscription created on spending output from this address by
  * revealing taproot script.
  */
-export function p2tr_ord_reveal(pubkey: Bytes, inscriptions: Inscription[]) {
+export function p2tr_ord_reveal(
+  pubkey: Bytes,
+  inscriptions: Inscription[]
+): { type: string; script: Uint8Array } {
   return {
     type: "tr_ord_reveal",
     script: P.apply(Script, P.coders.match([OutOrdinalReveal])).encode({
@@ -304,4 +318,4 @@ export function p2tr_ord_reveal(pubkey: Bytes, inscriptions: Inscription[]) {
 }
 
 // Internal methods for tests
-export const __test__ = { TagCoders, TagCoder, parseEnvelopes };
+export const __test__: any = { TagCoders, TagCoder, parseEnvelopes };
