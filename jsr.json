@@ -3,10 +3,13 @@
   "version": "0.2.1",
   "exports": {
     ".": "./src/index.ts",
-    "./debugger": "./src/debugger.ts"
+    "./cbor": "./src/cbor.ts"
   },
   "imports": {
-    "@scure/base": "jsr:@scure/base@~1.2.5"
+    "@scure/base": "jsr:@scure/base@~1.2.5",
+    "@scure/btc-signer": "jsr:@scure/btc-signer@~1.8.0",
+    "enquirer": "jsr:@scure/base@~1.2.5",
+    "micro-packed": "jsr:@paulmillr/micro-packed@~0.7.3"
   },
   "publish": {
     "include": [
