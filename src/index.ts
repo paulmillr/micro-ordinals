@@ -8,7 +8,7 @@ import {
   utils,
 } from '@scure/btc-signer';
 import * as P from 'micro-packed';
-import { CBOR } from './cbor.js';
+import { CBOR } from './cbor.ts';
 
 type Bytes = Uint8Array;
 const PROTOCOL_ID = /* @__PURE__ */ utf8.decode('ord');

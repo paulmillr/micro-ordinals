@@ -19,7 +19,7 @@ import {
 } from '@scure/btc-signer';
 // @ts-ignore
 import Select from 'enquirer/lib/prompts/select.js';
-import { type Inscription, OutOrdinalReveal, p2tr_ord_reveal } from './index.js';
+import { type Inscription, OutOrdinalReveal, p2tr_ord_reveal } from './index.ts';
 /*
 
 */
