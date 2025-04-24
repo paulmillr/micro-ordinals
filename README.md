@@ -12,6 +12,8 @@ Inscriptions allow uploading random files on BTC blockchain.
 
 > npm install micro-ordinals
 
+> `deno add jsr:@paulmillr/micro-ordinals`
+
 - [Creating inscription](#creating-inscription)
 - [TypeScript API](#typescript-api)
 - [CLI](#cli)
