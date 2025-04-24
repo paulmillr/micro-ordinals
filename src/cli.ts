@@ -304,7 +304,8 @@ async function getAddr(net: NET, opts: Opts) {
 function getPayment(privKey: Uint8Array, recovery: Uint8Array, inscription: Inscription, net: NET) {
   const pubKey = utils.pubSchnorr(privKey);
   const recoveryPub = utils.pubSchnorr(recovery);
-  return p2tr(recoveryPub, p2tr_ord_reveal(pubKey, [inscription]), net, false, customScripts);
+  const rev = p2tr_ord_reveal(pubKey, [inscription]);
+  return p2tr(recoveryPub, rev, net, false, customScripts);
 }
 
 function getTransaction(
