@@ -288,9 +288,9 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
 export function p2tr_ord_reveal(
   pubkey: Bytes,
   inscriptions: Inscription[]
-): { type: string; script: Uint8Array } {
+): { type: 'tr'; script: Uint8Array } {
   return {
-    type: 'tr_ord_reveal',
+    type: 'tr',
     script: P.apply(Script, P.coders.match([OutOrdinalReveal])).encode({
       type: 'tr_ord_reveal',
       pubkey,
