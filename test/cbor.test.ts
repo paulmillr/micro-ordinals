@@ -1,7 +1,7 @@
-import { deepStrictEqual, throws } from 'node:assert';
-import { describe, should } from 'micro-should';
 import { hex } from '@scure/base';
-import { CBOR } from '../lib/esm/cbor.js';
+import { describe, should } from 'micro-should';
+import { deepStrictEqual, throws } from 'node:assert';
+import { CBOR } from '../src/cbor.ts';
 
 describe('CBOR', () => {
   should('Decode', () => {
@@ -30,8 +30,8 @@ describe('CBOR', () => {
         '5f476578616d706c6547ceb1e289a4ceb2ff',
       ],
       [new Uint8Array([101, 120, 97, 109, 112, 108, 101]), '5f476578616d706c65ff'],
-      [new Uint8Array([]), '5fff'],
-      [new Uint8Array([]), '5f40ff'],
+      [Uint8Array.of(), '5fff'],
+      [Uint8Array.of(), '5f40ff'],
       // infinity strings
       ['exampleα≤β', '7f676578616d706c6567ceb1e289a4ceb2ff'],
       ['example', '7f676578616d706c65ff'],
@@ -80,7 +80,7 @@ describe('CBOR', () => {
       [true, 'f5'],
       [null, 'f6'],
       [undefined, 'f7'],
-      [new Uint8Array([]), '40'],
+      [Uint8Array.of(), '40'],
       [new Uint8Array([1, 2, 3, 4]), '4401020304'],
       ['', '60'],
       ['a', '6161'],
@@ -228,7 +228,7 @@ describe('CBOR', () => {
       [true, 'f5'],
       [null, 'f6'],
       [undefined, 'f7'],
-      [new Uint8Array([]), '40'],
+      [Uint8Array.of(), '40'],
       [new Uint8Array([1, 2, 3, 4]), '4401020304'],
       ['', '60'],
       ['a', '6161'],

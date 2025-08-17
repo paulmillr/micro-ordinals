@@ -128,7 +128,7 @@ const TagCoder: P.Coder<TagRaw[], Tags> = {
 
       // Handle pointer = 0:
       if (field === 'pointer' && bytes.length === 0) {
-        bytes = new Uint8Array([0]);
+        bytes = Uint8Array.of(0);
       }
 
       for (const data of splitChunks(bytes)) res.push({ tag: tagName, data });

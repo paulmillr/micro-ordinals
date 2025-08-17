@@ -1,6 +1,6 @@
 import { describe, should } from 'micro-should';
 import { deepStrictEqual, throws } from 'node:assert';
-import * as cli from '../lib/esm/cli.js';
+import * as cli from '../src/cli.ts';
 
 describe('micro-ord-cli', () => {
   should('splitArgs', () => {

@@ -23,7 +23,7 @@ import { type Inscription, OutOrdinalReveal, p2tr_ord_reveal } from './index.ts'
 /*
 
 */
-
+type Bytes = Uint8Array;
 const { BROTLI_MODE_GENERIC: B_GENR, BROTLI_MODE_TEXT: B_TEXT, BROTLI_MODE_FONT } = zlibc;
 // Max script limit.
 // Bitcoin core node won't relay transaction with bigger limit, even if they possible.
@@ -251,7 +251,7 @@ function getInscription(filePath: string, opts: Opts) {
   const [mime, brotliMode] = type;
   const info: string[] = [];
   info.push(`mime=${mime}`);
-  let data = Uint8Array.from(readFileSync(filePath, null));
+  let data: Bytes = Uint8Array.from(readFileSync(filePath, null));
   let inscription: Inscription = { tags: { contentType: mime }, body: data };
   info.push(`size=${formatBytes(data.length)}`);
   if (!opts.compress || opts.compress !== 'off') {

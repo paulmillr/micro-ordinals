@@ -1,10 +1,10 @@
-import { deepStrictEqual, strictEqual } from 'node:assert';
-import { describe, should } from 'micro-should';
+import { schnorr as secp256k1_schnorr } from '@noble/curves/secp256k1.js';
 import { hex, utf8 } from '@scure/base';
 import * as btc from '@scure/btc-signer';
-import * as ordinals from '../lib/esm/index.js';
 import { TEST_NETWORK } from '@scure/btc-signer';
-import { schnorr as secp256k1_schnorr } from '@noble/curves/secp256k1';
+import { describe, should } from 'micro-should';
+import { deepStrictEqual, strictEqual } from 'node:assert';
+import * as ordinals from '../src/index.ts';
 import { default as ordvectors } from './fixtures/ordinals.json' with { type: 'json' };
 
 // The file misses a bunch of valid test vectors for inscriptions.
@@ -199,7 +199,7 @@ describe('Ordinals', () => {
             end: 8,
             pushnum: false,
             payload: [
-              new Uint8Array([1]),
+              Uint8Array.of(1),
               new Uint8Array([
                 116, 101, 120, 116, 47, 112, 108, 97, 105, 110, 59, 99, 104, 97, 114, 115, 101, 116,
                 61, 117, 116, 102, 45, 56,
@@ -227,7 +227,7 @@ describe('Ordinals', () => {
             end: 7,
             pushnum: false,
             payload: [
-              new Uint8Array([1]),
+              Uint8Array.of(1),
               new Uint8Array([
                 116, 101, 120, 116, 47, 112, 108, 97, 105, 110, 59, 99, 104, 97, 114, 115, 101, 116,
                 61, 117, 116, 102, 45, 56,
@@ -256,7 +256,7 @@ describe('Ordinals', () => {
             end: 7,
             pushnum: false,
             payload: [
-              new Uint8Array([1]),
+              Uint8Array.of(1),
               new Uint8Array([
                 116, 101, 120, 116, 47, 112, 108, 97, 105, 110, 59, 99, 104, 97, 114, 115, 101, 116,
                 61, 117, 116, 102, 45, 56,
@@ -271,7 +271,7 @@ describe('Ordinals', () => {
             end: 15,
             pushnum: false,
             payload: [
-              new Uint8Array([1]),
+              Uint8Array.of(1),
               new Uint8Array([
                 116, 101, 120, 116, 47, 112, 108, 97, 105, 110, 59, 99, 104, 97, 114, 115, 101, 116,
                 61, 117, 116, 102, 45, 56,
@@ -300,7 +300,7 @@ describe('Ordinals', () => {
           end: 7,
           pushnum: false,
           payload: [
-            new Uint8Array([1]),
+            Uint8Array.of(1),
             new Uint8Array([102, 111, 111]),
             0,
             new Uint8Array([
@@ -317,7 +317,7 @@ describe('Ordinals', () => {
           end: 15,
           pushnum: false,
           payload: [
-            new Uint8Array([1]),
+            Uint8Array.of(1),
             new Uint8Array([98, 97, 114]),
             0,
             new Uint8Array([
@@ -334,9 +334,9 @@ describe('Ordinals', () => {
     should('PushNum', () => {
       const VECTORS = [
         ['0063036f7264004f68', new Uint8Array([129])],
-        ['0063036f7264005168', new Uint8Array([1])],
-        ['0063036f7264005268', new Uint8Array([2])],
-        ['0063036f7264005368', new Uint8Array([3])],
+        ['0063036f7264005168', Uint8Array.of(1)],
+        ['0063036f7264005268', Uint8Array.of(2)],
+        ['0063036f7264005368', Uint8Array.of(3)],
         ['0063036f7264005468', new Uint8Array([4])],
         ['0063036f7264005568', new Uint8Array([5])],
         ['0063036f7264005668', new Uint8Array([6])],
@@ -404,9 +404,9 @@ describe('Ordinals', () => {
     const t = btc.Script.decode(new Uint8Array([0, 99, 3, 111, 114, 100, 1, 255, 1, 0, 104]));
     deepStrictEqual(ordinals.parseInscriptions(t), [
       {
-        body: new Uint8Array([]),
+        body: Uint8Array.of(),
         cursed: false,
-        tags: { unknown: [[new Uint8Array([255]), new Uint8Array([0])]] },
+        tags: { unknown: [[new Uint8Array([255]), Uint8Array.of(0)]] },
       },
     ]);
     deepStrictEqual(
@@ -415,8 +415,8 @@ describe('Ordinals', () => {
         pubkey: new Uint8Array(32),
         inscriptions: [
           {
-            tags: { unknown: [[new Uint8Array([255]), new Uint8Array([0])]] },
-            body: new Uint8Array([]),
+            tags: { unknown: [[new Uint8Array([255]), Uint8Array.of(0)]] },
+            body: Uint8Array.of(),
           },
         ],
       }),
@@ -427,7 +427,7 @@ describe('Ordinals', () => {
         'IF',
         new Uint8Array([111, 114, 100]),
         new Uint8Array([255]),
-        new Uint8Array([0]),
+        Uint8Array.of(0),
         0,
         'ENDIF',
       ]
