@@ -1,8 +1,8 @@
 import { schnorr as secp256k1_schnorr } from '@noble/curves/secp256k1.js';
+import { describe, should } from '@paulmillr/jsbt/test.js';
 import { hex, utf8 } from '@scure/base';
 import * as btc from '@scure/btc-signer';
 import { TEST_NETWORK } from '@scure/btc-signer';
-import { describe, should } from 'micro-should';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import * as ordinals from '../src/index.ts';
 import { default as ordvectors } from './fixtures/ordinals.json' with { type: 'json' };

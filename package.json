@@ -20,10 +20,8 @@
   },
   "devDependencies": {
     "@noble/curves": "~2.0.0-beta.1",
-    "@paulmillr/jsbt": "0.4.2",
+    "@paulmillr/jsbt": "0.4.3",
     "@types/node": "24.2.1",
-    "micro-bmark": "0.4.2",
-    "micro-should": "0.5.3",
     "prettier": "3.5.3",
     "typescript": "5.9.2"
   },
