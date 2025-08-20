@@ -1,6 +1,6 @@
 {
   "name": "micro-ordinals",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Manage ordinals, inscriptions and runes using scure-btc-signer",
   "files": [
     "*.js",
@@ -13,13 +13,13 @@
     "ord": "cli.js"
   },
   "dependencies": {
-    "@scure/base": "~2.0.0-beta.1",
-    "@scure/btc-signer": "~2.0.0-beta.1",
+    "@scure/base": "^2.0.0-beta.1",
+    "@scure/btc-signer": "^2.0.0-beta.1",
     "enquirer": "2.4.1",
-    "micro-packed": "~0.8.0-beta.1"
+    "micro-packed": "^0.8.0-beta.1"
   },
   "devDependencies": {
-    "@noble/curves": "~2.0.0-beta.1",
+    "@noble/curves": "^2.0.0-beta.1",
     "@paulmillr/jsbt": "0.4.3",
     "@types/node": "24.2.1",
     "prettier": "3.5.3",
