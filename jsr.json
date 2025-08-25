@@ -6,9 +6,9 @@
     "./cbor.js": "./src/cbor.ts"
   },
   "imports": {
-    "@scure/base": "jsr:@scure/base@~2.0.0-beta.1",
-    "@scure/btc-signer": "jsr:@scure/btc-signer@~2.0.0-beta.1",
-    "micro-packed": "jsr:@paulmillr/micro-packed@~0.8.0-beta.1"
+    "@scure/base": "jsr:@scure/base@~2.0.0",
+    "@scure/btc-signer": "jsr:@scure/btc-signer@~2.0.0",
+    "micro-packed": "jsr:@paulmillr/micro-packed@~0.8.0"
   },
   "publish": {
     "include": [
