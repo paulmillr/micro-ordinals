@@ -3,7 +3,7 @@ import { describe, should } from '@paulmillr/jsbt/test.js';
 import { hex, utf8 } from '@scure/base';
 import * as btc from '@scure/btc-signer';
 import { TEST_NETWORK } from '@scure/btc-signer';
-import { deepStrictEqual, strictEqual } from 'node:assert';
+import { deepStrictEqual, strictEqual, throws } from 'node:assert';
 import * as ordinals from '../src/index.ts';
 import { default as ordvectors } from './fixtures/ordinals.json' with { type: 'json' };
 
@@ -76,7 +76,27 @@ describe('Ordinals', () => {
 
     strictEqual(encodedTag, 2);
     strictEqual(encodedValue, 0);
-  })
+  });
+
+  should('validator constructors', () => {
+    const txid = '0'.repeat(64);
+    const { TagCoder, parseEnvelopes } = ordinals.__test__;
+    throws(() => ordinals.InscriptionId.encode(1 as any), TypeError);
+    throws(() => ordinals.InscriptionId.encode(`${txid}i1.5`), RangeError);
+    throws(() => TagCoder.decode({ unknown: 1 } as any), TypeError);
+    throws(() => parseEnvelopes([], '0' as any), TypeError);
+    throws(() => parseEnvelopes([], 1.5), RangeError);
+    throws(() => ordinals.parseWitness(1 as any), TypeError);
+    throws(() => ordinals.parseWitness([]), RangeError);
+    throws(
+      () => ordinals.OutOrdinalReveal.finalizeTaproot([], { pubkey: new Uint8Array([1]) }, 1 as any),
+      TypeError
+    );
+    throws(
+      () => ordinals.OutOrdinalReveal.finalizeTaproot([], { pubkey: new Uint8Array([1]) }, []),
+      RangeError
+    );
+  });
 
   should('inscription/11820782', () => {
     // https://ordiscan.com/inscription/11820782

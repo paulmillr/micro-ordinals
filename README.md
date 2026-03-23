@@ -23,10 +23,11 @@ Inscriptions allow uploading random files on BTC blockchain.
 ```js
 // npm install micro-ordinals @scure/btc-signer @scure/base
 import * as btc from '@scure/btc-signer';
+import { TEST_NETWORK } from '@scure/btc-signer';
 import * as ordinals from 'micro-ordinals';
 import { hex, utf8 } from '@scure/base';
 
-const TESTNET = btc.utils.TEST_NETWORK;
+const TESTNET = TEST_NETWORK;
 const privKey = hex.decode('0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a');
 const pubKey = btc.utils.pubSchnorr(privKey);
 const customScripts = [ordinals.OutOrdinalReveal]; // Enable custom scripts outside
@@ -76,16 +77,18 @@ tx.finalize();
 const txHex = hex.encode(tx.extract());
 console.log(txHex); // Hex of reveal tx to broadcast
 const tx2 = btc.Transaction.fromRaw(hex.decode(txHex)); // Parsing inscriptions
-console.log('parsed', ordinals.parseWitness(tx2.inputs[0].finalScriptWitness));
+const witness = tx2.getInput(0).finalScriptWitness;
+if (!witness) throw new Error('Missing witness');
+const parsed = ordinals.parseWitness(witness);
 console.log('vsize', tx2.vsize); // Reveal tx should pay at least this much fee
 ```
 
 ### TypeScript API
 
 ```ts
-import { Coder } from '@scure/base';
+import type { Coder } from '@scure/base';
 import * as P from 'micro-packed';
-import { ScriptType, OptScript, CustomScript } from '@scure/btc-signer';
+import type { ScriptType, OptScript, CustomScript } from '@scure/btc-signer';
 type Bytes = Uint8Array;
 export declare const InscriptionId: P.Coder<string, Bytes>;
 type TagRaw = {

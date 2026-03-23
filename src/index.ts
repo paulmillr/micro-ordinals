@@ -25,11 +25,23 @@ const RawInscriptionId = /* @__PURE__ */ P.tuple([
   P.apply(P.bigint(4, true, false, false), P.coders.numberBigint),
 ] as const);
 
+/**
+ * Ordinals inscription identifier coder.
+ * @example
+ * Encode the txid-and-index string form used to reference an inscription.
+ * ```ts
+ * InscriptionId.encode('0000000000000000000000000000000000000000000000000000000000000000i0');
+ * ```
+ */
 export const InscriptionId: P.Coder<string, Bytes> = {
   encode(data: string) {
+    if (typeof data !== 'string')
+      throw new TypeError(`InscriptionId.encode: expected string, got ${typeof data}`);
     const [txId, index] = data.split('i', 2);
-    if (`${+index}` !== index) throw new Error(`InscriptionId wrong index: ${index}`);
-    return RawInscriptionId.encode([hex.decode(txId), +index]);
+    const parsed = Number(index);
+    if (`${parsed}` !== index || !Number.isSafeInteger(parsed) || parsed < 0)
+      throw new RangeError(`InscriptionId wrong index: ${index}`);
+    return RawInscriptionId.encode([hex.decode(txId), parsed]);
   },
   decode(data: Bytes) {
     const [txId, index] = RawInscriptionId.decode(data);
@@ -58,19 +70,29 @@ const TagEnum = {
 const TagCoderInternal = /* @__PURE__ */ P.map(P.U8, TagEnum);
 type TagName = keyof typeof TagEnum;
 type TagRaw = { tag: Bytes; data: Bytes };
+/** Mapping of inscription tag names to their coders. */
 export type TagCodersType = {
-  pointer: P.CoderType<bigint>; // U64
+  /** Inscription pointer tag stored as an unsigned 64-bit integer. */
+  pointer: P.CoderType<bigint>;
+  /** MIME type for the inscription body. */
   contentType: P.CoderType<string>;
+  /** Parent inscription reference. */
   parent: P.Coder<string, Uint8Array>;
+  /** CBOR metadata payload. */
   metadata: P.CoderType<any>;
+  /** Secondary protocol name carried by the inscription. */
   metaprotocol: P.CoderType<string>;
+  /** Content-Encoding value for the inscription body. */
   contentEncoding: P.CoderType<string>;
+  /** Delegated inscription reference. */
   delegate: P.Coder<string, Uint8Array>;
-  rune: P.CoderType<bigint>; // U128
+  /** Rune identifier stored as an unsigned 128-bit integer. */
+  rune: P.CoderType<bigint>;
+  /** Free-form note text. */
   note: P.CoderType<string>;
 };
 
-const TagCoders: TagCodersType = /* @__PURE__ */ {
+const TagCoders: TagCodersType = /* @__PURE__ */ (() => ({
   pointer: P.bigint(8, true, false, false), // U64
   contentType: P.string(null),
   parent: InscriptionId,
@@ -82,8 +104,9 @@ const TagCoders: TagCodersType = /* @__PURE__ */ {
   note: P.string(null),
   // unbound: P.bytes(null),
   // nop: P.bytes(null),
-};
+}))();
 
+/** Parsed ordinals tag bag. */
 export type Tags = Partial<{
   [K in keyof typeof TagCoders]: P.UnwrapCoder<(typeof TagCoders)[K]>;
 }> & {
@@ -134,14 +157,23 @@ const TagCoder: P.Coder<TagRaw[], Tags> = {
       for (const data of splitChunks(bytes)) res.push({ tag: tagName, data });
     }
     if (to.unknown) {
-      if (!Array.isArray(to.unknown)) throw new Error('ordinals/TagCoder: unknown should be array');
+      if (!Array.isArray(to.unknown))
+        throw new TypeError('ordinals/TagCoder: unknown should be array');
       for (const [tag, data] of to.unknown) res.push({ tag, data });
     }
     return res;
   },
 };
 
-export type Inscription = { tags: Tags; body: Bytes; cursed?: boolean };
+/** Parsed ordinals inscription payload. */
+export type Inscription = {
+  /** Parsed inscription tags. */
+  tags: Tags;
+  /** Inscription body bytes. */
+  body: Bytes;
+  /** Whether the inscription was parsed from a cursed envelope. */
+  cursed?: boolean;
+};
 type OutOrdinalRevealType = {
   type: 'tr_ord_reveal';
   pubkey: Bytes;
@@ -149,7 +181,10 @@ type OutOrdinalRevealType = {
 };
 
 const parseEnvelopes = (script: ScriptType, pos = 0) => {
-  if (!Number.isSafeInteger(pos)) throw new Error(`parseInscription: wrong pos=${typeof pos}`);
+  if (typeof pos !== 'number')
+    throw new TypeError(`parseInscription: expected pos number, got ${typeof pos}`);
+  if (!Number.isSafeInteger(pos) || pos < 0)
+    throw new RangeError(`parseInscription: wrong pos=${pos}`);
   const envelopes = [];
   // Inscriptions with broken parsing are called 'cursed' (stutter or pushnum)
   let stutter = false;
@@ -198,7 +233,26 @@ const parseEnvelopes = (script: ScriptType, pos = 0) => {
   return envelopes;
 };
 
-// Additional API for parsing inscriptions
+/**
+ * Parses ordinals inscriptions from a script.
+ * @param script - decoded bitcoin script
+ * @param strict - require the exact reveal-script layout
+ * @returns parsed inscriptions when the script contains valid envelopes
+ * @throws If inscription tags or tag data are malformed inside the reveal script. {@link Error}
+ * @example
+ * Build a reveal script, then parse the inscriptions back out of the decoded script.
+ * ```ts
+ * import { parseInscriptions, p2tr_ord_reveal } from 'micro-ordinals';
+ * import { Script } from '@scure/btc-signer';
+ * import { pubSchnorr, randomPrivateKeyBytes } from '@scure/btc-signer/utils.js';
+ * const privKey = randomPrivateKeyBytes();
+ * const pubKey = pubSchnorr(privKey);
+ * const reveal = p2tr_ord_reveal(pubKey, [
+ *   { tags: { contentType: 'text/plain' }, body: new Uint8Array([1, 2, 3]) },
+ * ]);
+ * parseInscriptions(Script.decode(reveal.script));
+ * ```
+ */
 export function parseInscriptions(script: ScriptType, strict = false): Inscription[] | undefined {
   if (strict && (!utils.isBytes(script[0]) || script[0].length !== 32)) return;
   if (strict && script[1] !== 'CHECKSIG') return;
@@ -240,14 +294,52 @@ export function parseInscriptions(script: ScriptType, strict = false): Inscripti
 
 /**
  * Parse inscriptions from reveal tx input witness (tx.inputs[0].finalScriptWitness)
+ * @param witness - reveal input witness stack
+ * @returns parsed inscriptions when the witness contains a reveal script
+ * @throws If the decoded reveal script contains malformed inscription tags. {@link Error}
+ * @throws On wrong witness argument types. {@link TypeError}
+ * @throws On wrong witness stack length. {@link RangeError}
+ * @example
+ * Reuse the reveal-script slot from a taproot witness and parse the inscription payload back out.
+ * ```ts
+ * import { parseWitness, p2tr_ord_reveal } from 'micro-ordinals';
+ * import { pubSchnorr, randomPrivateKeyBytes } from '@scure/btc-signer/utils.js';
+ * const privKey = randomPrivateKeyBytes();
+ * const pubKey = pubSchnorr(privKey);
+ * const reveal = p2tr_ord_reveal(pubKey, [
+ *   { tags: { contentType: 'text/plain' }, body: new Uint8Array([1, 2, 3]) },
+ * ]);
+ * const dummySig = new Uint8Array([0]);
+ * const dummyControlBlock = new Uint8Array([0]);
+ * parseWitness([dummySig, reveal.script, dummyControlBlock]);
+ * ```
  */
 export function parseWitness(witness: Bytes[]): Inscription[] | undefined {
-  if (witness.length !== 3) throw new Error('Wrong witness');
+  if (!Array.isArray(witness))
+    throw new TypeError(`parseWitness: expected witness array, got ${typeof witness}`);
+  if (witness.length !== 3)
+    throw new RangeError(`parseWitness: expected 3 witness items, got ${witness.length}`);
   // We don't validate other parts of witness here since we want to parse
   // as much stuff as possible. When creating inscription, it is done more strictly
   return parseInscriptions(Script.decode(witness[1]));
 }
 
+/**
+ * Custom script codec for ordinals reveal scripts.
+ * @example
+ * Decode the custom ordinals reveal structure back out of a bitcoin script.
+ * ```ts
+ * import { OutOrdinalReveal, p2tr_ord_reveal } from 'micro-ordinals';
+ * import { Script } from '@scure/btc-signer';
+ * import { pubSchnorr, randomPrivateKeyBytes } from '@scure/btc-signer/utils.js';
+ * const privKey = randomPrivateKeyBytes();
+ * const pubKey = pubSchnorr(privKey);
+ * const reveal = p2tr_ord_reveal(pubKey, [
+ *   { tags: { contentType: 'text/plain' }, body: new Uint8Array([1, 2, 3]) },
+ * ]);
+ * OutOrdinalReveal.encode(Script.decode(reveal.script));
+ * ```
+ */
 export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined> & CustomScript = {
   encode(from: ScriptType): OutOrdinalRevealType | undefined {
     const res: Partial<OutOrdinalRevealType> = { type: 'tr_ord_reveal' };
@@ -274,7 +366,14 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
     return out as any;
   },
   finalizeTaproot: (script: any, parsed: any, signatures: any) => {
-    if (signatures.length !== 1) throw new Error('tr_ord_reveal/finalize: wrong signatures array');
+    if (!Array.isArray(signatures))
+      throw new TypeError(
+        `tr_ord_reveal/finalize: expected signatures array, got ${typeof signatures}`
+      );
+    if (signatures.length !== 1)
+      throw new RangeError(
+        `tr_ord_reveal/finalize: expected 1 signature, got ${signatures.length}`
+      );
     const [{ pubKey }, sig] = signatures[0];
     if (!P.utils.equalBytes(pubKey, parsed.pubkey)) return;
     return [sig, script];
@@ -284,6 +383,20 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
 /**
  * Create reveal transaction. Inscription created on spending output from this address by
  * revealing taproot script.
+ * @param pubkey - x-only taproot public key
+ * @param inscriptions - inscription payloads to embed in the reveal script
+ * @returns taproot script tree fragment for `@scure/btc-signer`
+ * @example
+ * Build the taproot script fragment that will reveal the inscription payloads.
+ * ```ts
+ * import { p2tr_ord_reveal } from 'micro-ordinals';
+ * import { pubSchnorr, randomPrivateKeyBytes } from '@scure/btc-signer/utils.js';
+ * const privKey = randomPrivateKeyBytes();
+ * const pubKey = pubSchnorr(privKey);
+ * p2tr_ord_reveal(pubKey, [
+ *   { tags: { contentType: 'text/plain' }, body: new Uint8Array([1, 2, 3]) },
+ * ]);
+ * ```
  */
 export function p2tr_ord_reveal(
   pubkey: Bytes,
