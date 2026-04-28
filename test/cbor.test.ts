@@ -1,7 +1,50 @@
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { hex } from '@scure/base';
+import { concatBytes } from '@scure/btc-signer/utils.js';
 import { deepStrictEqual, throws } from 'node:assert';
 import { CBOR } from '../src/cbor.ts';
+
+const lenHead = (major: number, len: number) => {
+  if (len < 24) return Uint8Array.of((major << 5) | len);
+  if (len <= 0xff) return Uint8Array.of((major << 5) | 24, len);
+  if (len <= 0xffff) return Uint8Array.of((major << 5) | 25, len >> 8, len & 0xff);
+  return Uint8Array.of(
+    (major << 5) | 26,
+    len >>> 24,
+    (len >>> 16) & 0xff,
+    (len >>> 8) & 0xff,
+    len & 0xff
+  );
+};
+const cborText = (s: string) => {
+  const data = new TextEncoder().encode(s);
+  return concatBytes(lenHead(3, data.length), data);
+};
+const cborZeroBytes = (len: number) => concatBytes(lenHead(2, len), new Uint8Array(len));
+const cborZeroArray = (len: number) => concatBytes(lenHead(4, len), new Uint8Array(len));
+const cborZeroMap = (len: number) => {
+  const value: Record<string, number> = {};
+  const chunks = [lenHead(5, len)];
+  for (let i = 0; i < len; i++) {
+    const k = `k${i}`;
+    value[k] = 0;
+    chunks.push(cborText(k), Uint8Array.of(0));
+  }
+  return [value, concatBytes(...chunks)] as const;
+};
+const decodeErrors = (vectors: string[]) => {
+  const got: string[] = [];
+  for (const v of vectors) {
+    try {
+      CBOR.decode(hex.decode(v));
+      got.push('ok');
+    } catch (e) {
+      const err = e as Error;
+      got.push(`${err.name}: ${err.message}`);
+    }
+  }
+  return got;
+};
 
 describe('CBOR', () => {
   should('Decode', () => {
@@ -312,6 +355,27 @@ describe('CBOR', () => {
       deepStrictEqual(encoded, exp);
     }
   });
+  should('Encode array and map length boundaries with shortest deterministic heads', () => {
+    // RFC 8949 §4.2.1: length arguments in major types 2..5 use the shortest form.
+    for (const len of [23, 24, 255, 256, 65535, 65536]) {
+      const value = Array.from({ length: len }, () => 0);
+      deepStrictEqual(CBOR.encode(value), cborZeroArray(len));
+    }
+    for (const len of [23, 24, 255, 256]) {
+      const [value, exp] = cborZeroMap(len);
+      deepStrictEqual(CBOR.encode(value), exp);
+    }
+  });
+  should('Encode bytes and text length boundaries with shortest deterministic heads', () => {
+    // RFC 8949 §4.2.1: length arguments in major types 2..5 use the shortest form.
+    for (const len of [23, 24, 255, 256, 65535, 65536]) {
+      deepStrictEqual(CBOR.encode(new Uint8Array(len)), cborZeroBytes(len));
+      const text = 'a'.repeat(len);
+      deepStrictEqual(CBOR.encode(text), cborText(text));
+    }
+    const text = 'é'.repeat(128);
+    deepStrictEqual(CBOR.encode(text), cborText(text));
+  });
 
   should('malformed', () => {
     const VECTORS = [
@@ -425,6 +489,40 @@ describe('CBOR', () => {
       'df',
     ];
     for (const v of VECTORS) throws(() => CBOR.decode(hex.decode(v)), v);
+  });
+  should('malformed integer reserved additional-information errors', () => {
+    deepStrictEqual(decodeErrors(['1c', '1d', '1e', '1f', '3c', '3d', '3e', '3f']), [
+      'Error: Reader(): cbor/uint wrong additional information=28',
+      'Error: Reader(): cbor/uint wrong additional information=29',
+      'Error: Reader(): cbor/uint wrong additional information=30',
+      'Error: Reader(): cbor/uint wrong additional information=31',
+      'Error: Reader(): cbor/uint wrong additional information=28',
+      'Error: Reader(): cbor/uint wrong additional information=29',
+      'Error: Reader(): cbor/uint wrong additional information=30',
+      'Error: Reader(): cbor/uint wrong additional information=31',
+    ]);
+  });
+  should('malformed array and map reserved additional-information errors', () => {
+    // RFC 8949 §3: additional information 28..30 is reserved and not well-formed.
+    deepStrictEqual(decodeErrors(['9c', '9d', '9e', 'bc', 'bd', 'be']), [
+      'Error: Reader(): cbor/lengthArray wrong length=28',
+      'Error: Reader(): cbor/lengthArray wrong length=29',
+      'Error: Reader(): cbor/lengthArray wrong length=30',
+      'Error: Reader(): cbor/lengthArray wrong length=28',
+      'Error: Reader(): cbor/lengthArray wrong length=29',
+      'Error: Reader(): cbor/lengthArray wrong length=30',
+    ]);
+  });
+  should('malformed bytes and text reserved additional-information errors', () => {
+    // RFC 8949 §3: additional information 28..30 is reserved and not well-formed.
+    deepStrictEqual(decodeErrors(['5c', '5d', '5e', '7c', '7d', '7e']), [
+      'Error: Reader(): cbor/length wrong length=28',
+      'Error: Reader(): cbor/length wrong length=29',
+      'Error: Reader(): cbor/length wrong length=30',
+      'Error: Reader(): cbor/length wrong length=28',
+      'Error: Reader(): cbor/length wrong length=29',
+      'Error: Reader(): cbor/length wrong length=30',
+    ]);
   });
 });
 

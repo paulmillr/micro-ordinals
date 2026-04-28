@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { extname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { brotliCompressSync, constants as zlibc } from 'node:zlib';
 
 // @ts-ignore
 import Input from 'enquirer/lib/prompts/input.js';
 // @ts-ignore
 import { hex } from '@scure/base';
+import { type TArg } from '@scure/base';
 import {
   Address,
   Decimal,
@@ -24,12 +26,17 @@ import { type Inscription, OutOrdinalReveal, p2tr_ord_reveal } from './index.ts'
 
 */
 type Bytes = Uint8Array;
+const _1n = /* @__PURE__ */ BigInt(1);
 const { BROTLI_MODE_GENERIC: B_GENR, BROTLI_MODE_TEXT: B_TEXT, BROTLI_MODE_FONT } = zlibc;
-// Max script limit.
-// Bitcoin core node won't relay transaction with bigger limit, even if they possible.
-// https://github.com/bitcoin/bitcoin/blob/d908877c4774c2456eed09167a5f382758e4a8a6/src/policy/policy.h#L26-L27
+/**
+ * Relay-policy ceiling, not consensus: BIP 141 defines transaction weight units.
+ * Bitcoin Core standardness rejects heavier individual transactions.
+ * @see [Bitcoin Core policy.h](https://github.com/bitcoin/bitcoin/blob/d908877c4774c2456eed09167a5f382758e4a8a6/src/policy/policy.h#L26-L27)
+ */
 const MAX_STANDARD_TX_WEIGHT = 400000; // 4 * 100kvb
-const DUST_RELAY_TX_FEE = 3000n; // won't relay if less than this in fees?
+// Conservative reveal-output floor: real dust thresholds vary by script type.
+// This CLI overfunds instead of computing them exactly.
+const DUST_RELAY_TX_FEE = /* @__PURE__ */ BigInt(3000);
 const customScripts = [OutOrdinalReveal];
 const ZERO_32B = '00'.repeat(32);
 
@@ -41,10 +48,21 @@ export function splitArgs(args: string[]): { args: string[]; opts: Opts } {
   for (let i = 0; i < args.length; i++) {
     const cur = args[i];
     if (cur.startsWith('--')) {
+      // The CLI synopsis documents `--compress=on|off`.
+      // Inline values must not consume the next positional argument.
+      const opt = cur.slice(2);
+      const eq = opt.indexOf('=');
+      if (eq !== -1) {
+        const name = opt.slice(0, eq);
+        const value = opt.slice(eq + 1);
+        if (!name || !value) throw new Error(`arguments: no value for ${cur}`);
+        opts[name] = value;
+        continue;
+      }
       if (i + 1 >= args.length) throw new Error(`arguments: no value for ${cur}`);
       const next = args[++i];
       if (next.startsWith('--')) throw new Error(`arguments: no value for ${cur}, got ${next}`);
-      opts[cur.slice(2)] = next;
+      opts[opt] = next;
       continue;
     }
     _args.push(cur);
@@ -52,6 +70,8 @@ export function splitArgs(args: string[]): { args: string[]; opts: Opts } {
   return { args: _args, opts };
 }
 
+// Accept only canonical positive JS decimal strings.
+// Aliases like `1.0`, `01`, and `1e1` are rejected.
 const validateFloat = (s: string) => {
   const n = Number.parseFloat(s);
   const matches = n.toString() === s && Number.isFinite(n) && n > 0;
@@ -75,6 +95,7 @@ const validateIndex = (s: string) => {
   return matches || `Number must be between 0 and ${2 ** 32}`;
 };
 
+// UTXO amounts are entered as BTC decimal strings and converted to satoshis at 8-decimal precision.
 const validateAmount = (s: string) => {
   try {
     const n = Decimal.decode(s);
@@ -106,7 +127,7 @@ const HELP_TEXT = `
   sent to inscription address by accident without paying full inscription fee.
 - ${bold}compress:${reset} inscriptions compressed with brotli.
   Compatible with explorers. default=on
-- ${bold}fee:${reset} bitcoin network fee in satoshis
+- ${bold}fee:${reset} bitcoin network fee in satoshi per vByte
 - ${bold}addr:${reset} address where inscription will be sent after reveal
 ${bold}Important:${reset} first sat is always inscribed. Batch inscriptions are not supported.
 `;
@@ -117,7 +138,7 @@ export const select = async (message: string, choices: string[]): Promise<any> =
   try {
     return await new Select({ message, choices }).run();
   } catch (e) {
-    process.exit(); // ctrl+c
+    process.exit(); // Treat any prompt failure as a user-abort path.
   }
 };
 
@@ -127,7 +148,7 @@ export async function input(message: string, validate?: InputValidate): Promise<
   try {
     return await new Input(opts).run();
   } catch (e) {
-    process.exit(); // ctrl+c
+    process.exit(); // Treat any prompt failure as a user-abort path.
   }
 }
 
@@ -197,6 +218,7 @@ type NET = (typeof NETWORKS)[keyof typeof NETWORKS];
 
 const usage = (err?: Error | string) => {
   if (err) console.error(`${red}ERROR${reset}: ${err}`);
+  // Keep this synopsis aligned with package.json bin names and splitArgs' accepted option syntax.
   console.log(
     `Usage: ${green}ord-cli${reset} [--net ${Object.keys(NETWORKS).join(
       '|'
@@ -225,7 +247,9 @@ function getKeys(net: NET, opts: Opts) {
     // We can probably can do taproot tweak,
     // but if user provided non-taproot key there would be an error?
     // For example user can accidentally provide key for
-    if (opts[name]) res[name] = WIF(net).decode(opts.priv);
+    // Private and recovery keys are independent options.
+    // Decode the option selected by this loop.
+    if (opts[name]) res[name] = WIF(net).decode(opts[name]);
     else {
       res[name] = utils.randomPrivateKeyBytes();
       console.log(`${KEYS[name]} private key: ${red}${WIF(net).encode(res[name])}${reset}`);
@@ -242,6 +266,15 @@ function getKeys(net: NET, opts: Opts) {
   return res as { priv: Uint8Array; recovery: Uint8Array };
 }
 
+const isMain = (url: string, argv: string[]) => {
+  const entry = argv[1];
+  // `node -e` imports have no script entry; only real script execution should run the CLI.
+  if (!entry) return false;
+  return url === pathToFileURL(realpathSync(entry)).href; // ESM is broken.
+};
+
+export const __TEST = { getKeys, isMain, HELP_TEXT };
+
 function getInscription(filePath: string, opts: Opts) {
   const stat = lstatSync(filePath);
   if (!stat.isFile()) return usage(`path is not file "${filePath}"`);
@@ -254,6 +287,7 @@ function getInscription(filePath: string, opts: Opts) {
   let data: Bytes = Uint8Array.from(readFileSync(filePath, null));
   let inscription: Inscription = { tags: { contentType: mime }, body: data };
   info.push(`size=${formatBytes(data.length)}`);
+  // Compression is default-on here; only the exact string 'off' disables it.
   if (!opts.compress || opts.compress !== 'off') {
     const compressed = brotliCompressSync(data, {
       params: {
@@ -280,7 +314,8 @@ function getInscription(filePath: string, opts: Opts) {
 
 async function getFee(opts: Opts) {
   let fee = opts.fee;
-  if (!fee) fee = await input(`Network fee (in satoshi)`, validateFloat);
+  // Fee input is a fee rate in satoshi per vByte; `main()` later multiplies it by `dummyTx.vsize`.
+  if (!fee) fee = await input(`Network fee (satoshi per vByte)`, validateFloat);
   if (validateFloat(fee) !== true) return usage(`wrong fee=${fee}`);
   return parseFloat(fee);
 }
@@ -301,15 +336,20 @@ async function getAddr(net: NET, opts: Opts) {
   return address;
 }
 
-function getPayment(privKey: Uint8Array, recovery: Uint8Array, inscription: Inscription, net: NET) {
+function getPayment(
+  privKey: TArg<Uint8Array>,
+  recovery: TArg<Uint8Array>,
+  inscription: TArg<Inscription>,
+  net: NET
+) {
   const pubKey = utils.pubSchnorr(privKey);
   const recoveryPub = utils.pubSchnorr(recovery);
-  const rev = p2tr_ord_reveal(pubKey, [inscription]);
+  const rev = p2tr_ord_reveal(pubKey, [inscription] as TArg<Inscription[]>);
   return p2tr(recoveryPub, rev, net, false, customScripts);
 }
 
 function getTransaction(
-  privKey: Uint8Array,
+  privKey: TArg<Uint8Array>,
   addr: string,
   payment: ReturnType<typeof getPayment>,
   net: NET,
@@ -326,6 +366,8 @@ function getTransaction(
     witnessUtxo: { script: payment.script, amount },
   });
   tx.addOutputAddress(addr, amount - fee, net);
+  // Use deterministic BIP340 aux data here; all-zero auxRand is allowed.
+  // Fresh randomness would harden side-channel resistance.
   tx.sign(privKey, undefined, new Uint8Array(32));
   tx.finalize();
   return tx;
@@ -334,8 +376,7 @@ function getTransaction(
 async function main() {
   try {
     const argv = process.argv;
-    // @ts-ignore
-    if (import.meta.url !== `file://${realpathSync(argv[1])}`) return; // ESM is broken.
+    if (!isMain(import.meta.url, argv)) return;
     if (argv.length < 3) return usage('Wrong argument count'); // node script file
     const { args, opts } = splitArgs(argv.slice(2));
     if (args.length !== 1) return usage(`only single file supported, got ${args.length}`);
@@ -347,12 +388,13 @@ async function main() {
     // Actual logic
     const payment = getPayment(priv, recovery, inscription, net);
     // dummy tx to estimate fees and tx size
-    const dummyTx = getTransaction(priv, addr, payment, net, ZERO_32B, 0, DUST_RELAY_TX_FEE, 1n);
+    const dummyTx = getTransaction(priv, addr, payment, net, ZERO_32B, 0, DUST_RELAY_TX_FEE, _1n);
     if (dummyTx.weight >= MAX_STANDARD_TX_WEIGHT) {
       return usage(
         `File is too big: reveal transaction weight (${dummyTx.weight}) is higher than limit (${MAX_STANDARD_TX_WEIGHT})`
       );
     }
+    // Fee input is treated as satoshi per vByte and scaled by the estimated virtual size here.
     const txFee = BigInt(Math.floor(dummyTx.vsize * fee));
     console.log(`${bold}Fee:${reset} ${formatSatoshi(txFee)}`);
     // If output of reveal tx considered dust, it would be hard to spend later,

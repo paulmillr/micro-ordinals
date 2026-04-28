@@ -71,8 +71,8 @@ describe('Ordinals', () => {
     const { TagCoder } = ordinals.__test__;
     const encoded = TagCoder.decode({ pointer: 0n });
 
-    const encodedTag = encoded[0].tag[0]
-    const encodedValue = encoded[0].data[0]
+    const encodedTag = encoded[0].tag[0];
+    const encodedValue = encoded[0].data[0];
 
     strictEqual(encodedTag, 2);
     strictEqual(encodedValue, 0);
@@ -89,7 +89,8 @@ describe('Ordinals', () => {
     throws(() => ordinals.parseWitness(1 as any), TypeError);
     throws(() => ordinals.parseWitness([]), RangeError);
     throws(
-      () => ordinals.OutOrdinalReveal.finalizeTaproot([], { pubkey: new Uint8Array([1]) }, 1 as any),
+      () =>
+        ordinals.OutOrdinalReveal.finalizeTaproot([], { pubkey: new Uint8Array([1]) }, 1 as any),
       TypeError
     );
     throws(
@@ -200,6 +201,33 @@ describe('Ordinals', () => {
         cursed: true,
       },
     ]);
+  });
+  should('strict parsing rejects non-canonical reveal scripts', () => {
+    const pubkey = secp256k1_schnorr.getPublicKey(
+      hex.decode('0303030303030303030303030303030303030303030303030303030303030303')
+    );
+    const ord = Uint8Array.of(111, 114, 100);
+    const empty = [pubkey, 'CHECKSIG', 0, 'IF', ord, 0, 'ENDIF'];
+    deepStrictEqual(ordinals.parseInscriptions(empty, true), [
+      { tags: {}, body: Uint8Array.of(), cursed: false },
+    ]);
+    deepStrictEqual(ordinals.OutOrdinalReveal.encode(empty), {
+      type: 'tr_ord_reveal',
+      pubkey,
+      inscriptions: [{ tags: {}, body: Uint8Array.of(), cursed: false }],
+    });
+    const missingChecksig = [pubkey, 0, 'IF', ord, 0, 'ENDIF'];
+    deepStrictEqual(ordinals.parseInscriptions(missingChecksig), [
+      { tags: {}, body: Uint8Array.of(), cursed: false },
+    ]);
+    throws(() => ordinals.parseInscriptions(missingChecksig, true), /CHECKSIG/);
+    deepStrictEqual(ordinals.OutOrdinalReveal.encode(missingChecksig), undefined);
+    const stuttered = [pubkey, 'CHECKSIG', 0, 0, 'IF', ord, 'ENDIF'];
+    throws(() => ordinals.parseInscriptions(stuttered, true), /cursed/);
+    deepStrictEqual(ordinals.OutOrdinalReveal.encode(stuttered), undefined);
+    const badPubkey = [new Uint8Array(32), 'CHECKSIG', 0, 'IF', ord, 0, 'ENDIF'];
+    throws(() => ordinals.parseInscriptions(badPubkey, true), /x-only/);
+    deepStrictEqual(ordinals.OutOrdinalReveal.encode(badPubkey), undefined);
   });
 
   describe('Parsing', () => {
@@ -422,6 +450,9 @@ describe('Ordinals', () => {
   });
   should('unknown fields', () => {
     const t = btc.Script.decode(new Uint8Array([0, 99, 3, 111, 114, 100, 1, 255, 1, 0, 104]));
+    const pubkey = secp256k1_schnorr.getPublicKey(
+      hex.decode('0202020202020202020202020202020202020202020202020202020202020202')
+    );
     deepStrictEqual(ordinals.parseInscriptions(t), [
       {
         body: Uint8Array.of(),
@@ -432,7 +463,7 @@ describe('Ordinals', () => {
     deepStrictEqual(
       ordinals.OutOrdinalReveal.decode({
         type: 'tr_ord_reveal',
-        pubkey: new Uint8Array(32),
+        pubkey,
         inscriptions: [
           {
             tags: { unknown: [[new Uint8Array([255]), Uint8Array.of(0)]] },
@@ -441,7 +472,7 @@ describe('Ordinals', () => {
         ],
       }),
       [
-        new Uint8Array(32),
+        pubkey,
         'CHECKSIG',
         0,
         'IF',
@@ -452,6 +483,41 @@ describe('Ordinals', () => {
         'ENDIF',
       ]
     );
+  });
+  should('reveal builders validate x-only pubkeys', () => {
+    const inscription = { tags: {}, body: Uint8Array.of() };
+    const pubkey = secp256k1_schnorr.getPublicKey(
+      hex.decode('0101010101010101010101010101010101010101010101010101010101010101')
+    );
+    deepStrictEqual(
+      ordinals.OutOrdinalReveal.decode({
+        type: 'tr_ord_reveal',
+        pubkey,
+        inscriptions: [inscription],
+      }),
+      [pubkey, 'CHECKSIG', 0, 'IF', new Uint8Array([111, 114, 100]), 0, 'ENDIF']
+    );
+    deepStrictEqual(ordinals.p2tr_ord_reveal(pubkey, [inscription]).type, 'tr');
+    throws(
+      () =>
+        ordinals.OutOrdinalReveal.decode({
+          type: 'tr_ord_reveal',
+          pubkey: Uint8Array.of(1),
+          inscriptions: [inscription],
+        }),
+      RangeError
+    );
+    throws(() => ordinals.p2tr_ord_reveal(Uint8Array.of(1), [inscription]), RangeError);
+    throws(
+      () =>
+        ordinals.OutOrdinalReveal.decode({
+          type: 'tr_ord_reveal',
+          pubkey: new Uint8Array(32),
+          inscriptions: [inscription],
+        }),
+      RangeError
+    );
+    throws(() => ordinals.p2tr_ord_reveal(new Uint8Array(32), [inscription]), RangeError);
   });
   should('Example (fake)', () => {
     const TESTNET = TEST_NETWORK;

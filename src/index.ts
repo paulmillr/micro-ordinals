@@ -1,4 +1,4 @@
-import { type Coder, hex, utf8 } from '@scure/base';
+import { type Coder, hex, type TArg, type TRet, utf8 } from '@scure/base';
 import {
   type CustomScript,
   MAX_SCRIPT_BYTE_LENGTH,
@@ -7,19 +7,23 @@ import {
   type ScriptType,
   utils,
 } from '@scure/btc-signer';
+import { PubT, validatePubkey } from '@scure/btc-signer/utils.js';
 import * as P from 'micro-packed';
 import { CBOR } from './cbor.ts';
 
 type Bytes = Uint8Array;
+// Ordinals envelopes are tagged with the literal ASCII protocol marker "ord".
 const PROTOCOL_ID = /* @__PURE__ */ utf8.decode('ord');
 
-function splitChunks(buf: Bytes): Bytes[] {
-  const res = [];
+// Split payloads into 520-byte push chunks; returned slices are subarray views.
+function splitChunks(buf: TArg<Bytes>): TRet<Bytes[]> {
+  const res: Bytes[] = [];
   for (let i = 0; i < buf.length; i += MAX_SCRIPT_BYTE_LENGTH)
     res.push(buf.subarray(i, i + MAX_SCRIPT_BYTE_LENGTH));
-  return res;
+  return res as TRet<Bytes[]>;
 }
 
+// Raw ids are txid bytes in internal little-endian order plus a minimally encoded u32 index.
 const RawInscriptionId = /* @__PURE__ */ P.tuple([
   P.bytes(32, true),
   P.apply(P.bigint(4, true, false, false), P.coders.numberBigint),
@@ -33,21 +37,23 @@ const RawInscriptionId = /* @__PURE__ */ P.tuple([
  * InscriptionId.encode('0000000000000000000000000000000000000000000000000000000000000000i0');
  * ```
  */
-export const InscriptionId: P.Coder<string, Bytes> = {
+export const InscriptionId: TRet<P.Coder<string, Bytes>> = /* @__PURE__ */ Object.freeze({
   encode(data: string) {
     if (typeof data !== 'string')
       throw new TypeError(`InscriptionId.encode: expected string, got ${typeof data}`);
     const [txId, index] = data.split('i', 2);
     const parsed = Number(index);
+    // Keep one canonical string form: decimal index only.
+    // No sign, padding, fraction, or whitespace.
     if (`${parsed}` !== index || !Number.isSafeInteger(parsed) || parsed < 0)
       throw new RangeError(`InscriptionId wrong index: ${index}`);
     return RawInscriptionId.encode([hex.decode(txId), parsed]);
   },
-  decode(data: Bytes) {
+  decode(data: TArg<Bytes>) {
     const [txId, index] = RawInscriptionId.decode(data);
     return `${hex.encode(txId)}i${index}`;
   },
-};
+}) as TRet<P.Coder<string, Bytes>>;
 
 const TagEnum = {
   // Would be simpler to have body tag here,
@@ -92,19 +98,20 @@ export type TagCodersType = {
   note: P.CoderType<string>;
 };
 
-const TagCoders: TagCodersType = /* @__PURE__ */ (() => ({
-  pointer: P.bigint(8, true, false, false), // U64
-  contentType: P.string(null),
-  parent: InscriptionId,
-  metadata: CBOR,
-  metaprotocol: P.string(null),
-  contentEncoding: P.string(null),
-  delegate: InscriptionId,
-  rune: P.bigint(16, true, false, false), // U128
-  note: P.string(null),
-  // unbound: P.bytes(null),
-  // nop: P.bytes(null),
-}))();
+const TagCoders: TagCodersType = /* @__PURE__ */ (() =>
+  Object.freeze({
+    pointer: Object.freeze(P.bigint(8, true, false, false)), // U64
+    contentType: Object.freeze(P.string(null)),
+    parent: InscriptionId,
+    metadata: CBOR,
+    metaprotocol: Object.freeze(P.string(null)),
+    contentEncoding: Object.freeze(P.string(null)),
+    delegate: InscriptionId,
+    rune: Object.freeze(P.bigint(16, true, false, false)), // U128
+    note: Object.freeze(P.string(null)),
+    // unbound: P.bytes(null),
+    // nop: P.bytes(null),
+  }))();
 
 /** Parsed ordinals tag bag. */
 export type Tags = Partial<{
@@ -113,8 +120,8 @@ export type Tags = Partial<{
   unknown?: [Bytes, Bytes][];
 };
 // We can't use mappedTag here, because tags can be split in chunks
-const TagCoder: P.Coder<TagRaw[], Tags> = {
-  encode(from: TagRaw[]): Tags {
+const TagCoder: P.Coder<TagRaw[], Tags> = /* @__PURE__ */ Object.freeze({
+  encode(from: TArg<TagRaw[]>): TRet<Tags> {
     const tmp: Record<string, Bytes[]> = {};
     const unknown: [Bytes, Bytes][] = [];
     // collect tag parts
@@ -130,15 +137,16 @@ const TagCoder: P.Coder<TagRaw[], Tags> = {
     const res: Partial<Tags> = {};
     if (unknown.length) res.unknown = unknown;
     for (const field in tmp) {
+      // Repeated known tags are chunk continuations; only parent remains multi-valued.
       if (field === 'parent' && tmp[field].length > 1) {
         res[field as TagName] = tmp[field].map((i) => TagCoders.parent.decode(i));
         continue;
       }
       res[field as TagName] = TagCoders[field as TagName].decode(utils.concatBytes(...tmp[field]));
     }
-    return res as Tags;
+    return res as TRet<Tags>;
   },
-  decode(to: Tags): TagRaw[] {
+  decode(to: TArg<Tags>): TRet<TagRaw[]> {
     const res: TagRaw[] = [];
     for (const field in to) {
       if (field === 'unknown') continue;
@@ -161,9 +169,9 @@ const TagCoder: P.Coder<TagRaw[], Tags> = {
         throw new TypeError('ordinals/TagCoder: unknown should be array');
       for (const [tag, data] of to.unknown) res.push({ tag, data });
     }
-    return res;
+    return res as TRet<TagRaw[]>;
   },
-};
+});
 
 /** Parsed ordinals inscription payload. */
 export type Inscription = {
@@ -187,6 +195,8 @@ const parseEnvelopes = (script: ScriptType, pos = 0) => {
     throw new RangeError(`parseInscription: wrong pos=${pos}`);
   const envelopes = [];
   // Inscriptions with broken parsing are called 'cursed' (stutter or pushnum)
+  // Keep stutter sticky across following envelopes.
+  // This matches ord's cursed-inscription classification.
   let stutter = false;
   main: for (; pos < script.length; pos++) {
     const instr = script[pos];
@@ -239,6 +249,8 @@ const parseEnvelopes = (script: ScriptType, pos = 0) => {
  * @param strict - require the exact reveal-script layout
  * @returns parsed inscriptions when the script contains valid envelopes
  * @throws If inscription tags or tag data are malformed inside the reveal script. {@link Error}
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
  * @example
  * Build a reveal script, then parse the inscriptions back out of the decoded script.
  * ```ts
@@ -253,17 +265,29 @@ const parseEnvelopes = (script: ScriptType, pos = 0) => {
  * parseInscriptions(Script.decode(reveal.script));
  * ```
  */
-export function parseInscriptions(script: ScriptType, strict = false): Inscription[] | undefined {
-  if (strict && (!utils.isBytes(script[0]) || script[0].length !== 32)) return;
-  if (strict && script[1] !== 'CHECKSIG') return;
+export function parseInscriptions(
+  script: ScriptType,
+  strict = false
+): TRet<Inscription[] | undefined> {
+  // Strict mode backs OutOrdinalReveal.encode().
+  // Malformed reveal layout must throw instead of leaking a partial codec object.
+  if (strict) {
+    validateXOnlyPubkey('parseInscription: strict mode', script[0] as Bytes);
+    if (script[1] !== 'CHECKSIG')
+      throw new Error('parseInscription: strict mode expected CHECKSIG at script[1]');
+  }
 
   const envelopes = parseEnvelopes(script);
   const inscriptions: Inscription[] = [];
   // Check that all inscriptions are sequential inside script
   let pos = 5;
   for (const envelope of envelopes) {
-    if (strict && (envelope.stutter || envelope.pushnum)) return;
-    if (strict && envelope.start !== pos) return;
+    if (strict && (envelope.stutter || envelope.pushnum))
+      throw new Error('parseInscription: strict mode cannot encode cursed envelopes');
+    if (strict && envelope.start !== pos)
+      throw new Error(
+        `parseInscription: strict mode expected envelope at ${pos}, got ${envelope.start}`
+      );
     const { payload } = envelope;
     let i = 0;
     const tags: TagRaw[] = [];
@@ -288,8 +312,14 @@ export function parseInscriptions(script: ScriptType, strict = false): Inscripti
     });
     pos = envelope.end + 4;
   }
-  if (pos - 3 !== script.length) return;
-  return inscriptions;
+  if (pos - 3 !== script.length) {
+    if (strict)
+      throw new Error(
+        `parseInscription: strict mode expected script length ${pos - 3}, got ${script.length}`
+      );
+    return;
+  }
+  return inscriptions as TRet<Inscription[]>;
 }
 
 /**
@@ -314,15 +344,26 @@ export function parseInscriptions(script: ScriptType, strict = false): Inscripti
  * parseWitness([dummySig, reveal.script, dummyControlBlock]);
  * ```
  */
-export function parseWitness(witness: Bytes[]): Inscription[] | undefined {
+export function parseWitness(witness: TArg<Bytes[]>): TRet<Inscription[] | undefined> {
   if (!Array.isArray(witness))
     throw new TypeError(`parseWitness: expected witness array, got ${typeof witness}`);
+  // This helper only supports the repo's [sig, script, control-block] reveal witness shape.
   if (witness.length !== 3)
     throw new RangeError(`parseWitness: expected 3 witness items, got ${witness.length}`);
   // We don't validate other parts of witness here since we want to parse
   // as much stuff as possible. When creating inscription, it is done more strictly
-  return parseInscriptions(Script.decode(witness[1]));
+  return parseInscriptions(Script.decode(witness[1])) as TRet<Inscription[] | undefined>;
 }
+
+const validateXOnlyPubkey = (name: string, pubkey: TArg<Bytes>) => {
+  // BIP340 encodes public keys as 32 bytes; BIP342 treats 32-byte tapscript keys as BIP340 keys.
+  if (!utils.isBytes(pubkey)) throw new TypeError(`${name}: expected pubkey bytes`);
+  try {
+    validatePubkey(pubkey, PubT.schnorr);
+  } catch (e) {
+    throw new RangeError(`${name}: expected valid 32-byte x-only pubkey`);
+  }
+};
 
 /**
  * Custom script codec for ordinals reveal scripts.
@@ -340,8 +381,10 @@ export function parseWitness(witness: Bytes[]): Inscription[] | undefined {
  * OutOrdinalReveal.encode(Script.decode(reveal.script));
  * ```
  */
-export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined> & CustomScript = {
-  encode(from: ScriptType): OutOrdinalRevealType | undefined {
+export const OutOrdinalReveal: TRet<
+  Coder<OptScript, OutOrdinalRevealType | undefined> & CustomScript
+> = /* @__PURE__ */ Object.freeze({
+  encode(from: ScriptType): TRet<OutOrdinalRevealType | undefined> {
     const res: Partial<OutOrdinalRevealType> = { type: 'tr_ord_reveal' };
     try {
       res.inscriptions = parseInscriptions(from, true);
@@ -349,11 +392,13 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
     } catch (e) {
       return;
     }
-    return res as OutOrdinalRevealType;
+    return res as TRet<OutOrdinalRevealType>;
   },
-  decode: (to: OutOrdinalRevealType): OptScript => {
+  decode: (to: TArg<OutOrdinalRevealType>): OptScript => {
     if (to.type !== 'tr_ord_reveal') return;
+    validateXOnlyPubkey('tr_ord_reveal/decode', to.pubkey);
     const out: ScriptType = [to.pubkey, 'CHECKSIG'];
+    // `cursed` is parse-only metadata; the reveal script itself only carries tags and body bytes.
     for (const { tags, body } of to.inscriptions) {
       out.push(0, 'IF', PROTOCOL_ID);
       const rawTags = TagCoder.decode(tags);
@@ -376,9 +421,10 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
       );
     const [{ pubKey }, sig] = signatures[0];
     if (!P.utils.equalBytes(pubKey, parsed.pubkey)) return;
+    // scure-btc-signer appends the Taproot control block after this hook returns [sig, script].
     return [sig, script];
   },
-};
+}) as TRet<Coder<OptScript, OutOrdinalRevealType | undefined> & CustomScript>;
 
 /**
  * Create reveal transaction. Inscription created on spending output from this address by
@@ -386,6 +432,8 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
  * @param pubkey - x-only taproot public key
  * @param inscriptions - inscription payloads to embed in the reveal script
  * @returns taproot script tree fragment for `@scure/btc-signer`
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
  * @example
  * Build the taproot script fragment that will reveal the inscription payloads.
  * ```ts
@@ -399,18 +447,20 @@ export const OutOrdinalReveal: Coder<OptScript, OutOrdinalRevealType | undefined
  * ```
  */
 export function p2tr_ord_reveal(
-  pubkey: Bytes,
-  inscriptions: Inscription[]
-): { type: 'tr'; script: Uint8Array } {
+  pubkey: TArg<Bytes>,
+  inscriptions: TArg<Inscription[]>
+): TRet<{ type: 'tr'; script: Uint8Array }> {
+  // `pubkey` becomes the x-only CHECKSIG key inside the reveal tapscript and must stay 32 bytes.
+  validateXOnlyPubkey('p2tr_ord_reveal', pubkey);
   return {
     type: 'tr',
     script: P.apply(Script, P.coders.match([OutOrdinalReveal])).encode({
       type: 'tr_ord_reveal',
-      pubkey,
+      pubkey: pubkey as Bytes,
       inscriptions,
     }),
-  };
+  } as TRet<{ type: 'tr'; script: Uint8Array }>;
 }
 
 // Internal methods for tests
-export const __test__: any = { TagCoders, TagCoder, parseEnvelopes };
+export const __test__: any = /* @__PURE__ */ Object.freeze({ TagCoders, TagCoder, parseEnvelopes });

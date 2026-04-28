@@ -3,11 +3,9 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": ".",
+    "types": ["node"],
     "isolatedDeclarations": false
   },
-  "include": [
-    "src"
-  ],
-  "exclude": [
-  ]
+  "include": ["src"],
+  "exclude": []
 }

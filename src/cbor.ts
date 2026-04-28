@@ -1,12 +1,17 @@
+import { type TArg } from '@scure/base';
 import { utils } from '@scure/btc-signer';
 import * as P from 'micro-packed';
 
 type Bytes = Uint8Array;
+const _0n = /* @__PURE__ */ BigInt(0);
+const _1n = /* @__PURE__ */ BigInt(1);
+const MAX_U64 = /* @__PURE__ */ BigInt(2) ** /* @__PURE__ */ BigInt(64) - _1n;
 
 // Binary JSON-like encoding: [RFC 7049](https://www.rfc-editor.org/rfc/rfc7049)
 // And partially [RFC 8949](https://www.rfc-editor.org/rfc/rfc8949.html): without tagged values.
 // Used for metadata encoding in ordinals and passkeys. Complex, but efficient encoding.
 
+// JS `===` collapses signed zero, but CBOR/IEEE 754 can encode `-0` distinctly.
 const isNegZero = (x: number) => x === 0 && 1 / x < 0;
 
 // Float16Array is not available in JS as per Apr 2024.
@@ -15,7 +20,7 @@ const isNegZero = (x: number) => x === 0 && 1 / x < 0;
 // https://github.com/tc39/proposal-float16array
 const F16BE = P.wrap({
   encodeStream(w, value: number) {
-    // We simple encode popular values as bytes
+    // Only special binary16 cases are emitted here; finite values currently stay on the wider path.
     if (value === Infinity) return w.bytes(new Uint8Array([0x7c, 0x00]));
     if (value === -Infinity) return w.bytes(new Uint8Array([0xfc, 0x00]));
     if (Number.isNaN(value)) return w.bytes(new Uint8Array([0x7e, 0x00]));
@@ -36,9 +41,10 @@ const F16BE = P.wrap({
 });
 
 const INFO = P.bits(5); // additional info
+// CBOR lengths can be uint64, but JS containers here only admit safe-integer lengths.
 const U64LEN = P.apply(P.U64BE, P.coders.numberBigint);
 
-// Number/lengths limits
+// ai -> [max scalar value, direct integer coder, safe JS length coder]
 const CBOR_LIMITS: Record<
   number,
   [number | bigint, P.CoderType<number> | P.CoderType<bigint>, P.CoderType<number>]
@@ -46,7 +52,7 @@ const CBOR_LIMITS: Record<
   24: [2 ** 8 - 1, P.U8, P.U8],
   25: [2 ** 16 - 1, P.U16BE, P.U16BE],
   26: [2 ** 32 - 1, P.U32BE, P.U32BE],
-  27: [2n ** 64n - 1n, P.U64BE, U64LEN],
+  27: [MAX_U64, P.U64BE, U64LEN],
 };
 
 const cborUint = P.wrap({
@@ -63,18 +69,20 @@ const cborUint = P.wrap({
   decodeStream(r) {
     const ai = INFO.decodeStream(r);
     if (ai < 24) return ai;
-    const intCoder = CBOR_LIMITS[ai][1];
-    if (!intCoder) throw r.err(`cbor/uint wrong additional information=${ai}`);
+    const row = CBOR_LIMITS[ai];
+    // RFC 8949 §3 reserves 28..30 and makes 31 invalid for integers; reject before table indexing.
+    if (!row) throw r.err(`cbor/uint wrong additional information=${ai}`);
+    const intCoder = row[1];
     return intCoder.decodeStream(r);
   },
 });
 
 const cborNegint = P.wrap({
   encodeStream: (w, v: number | bigint) =>
-    cborUint.encodeStream(w, typeof v === 'bigint' ? -(v + 1n) : -(v + 1)),
+    cborUint.encodeStream(w, typeof v === 'bigint' ? -(v + _1n) : -(v + 1)),
   decodeStream(r) {
     const v = cborUint.decodeStream(r);
-    return typeof v === 'bigint' ? -1n - v : -1 - v;
+    return typeof v === 'bigint' ? -_1n - v : -1 - v;
   },
 });
 
@@ -88,7 +96,8 @@ const cborArrLength = <T>(inner: P.CoderType<T>): P.CoderType<T[]> =>
       }
       for (const ai in CBOR_LIMITS) {
         const [limit, _, lenCoder] = CBOR_LIMITS[ai];
-        if (value.length < limit) {
+        // RFC 8949 §4.2.1: array/map lengths 24..255 use uint8, so exact limits stay in-row.
+        if (value.length <= limit) {
           INFO.encodeStream(w, Number(ai));
           P.array(lenCoder, inner).encodeStream(w, value);
           return;
@@ -101,8 +110,10 @@ const cborArrLength = <T>(inner: P.CoderType<T>): P.CoderType<T[]> =>
       if (ai < 24) return P.array(ai, inner).decodeStream(r);
       // array can have indefinite-length
       if (ai === 31) return P.array(new Uint8Array([0xff]), inner).decodeStream(r);
-      const lenCoder = CBOR_LIMITS[ai][2];
-      if (!lenCoder) throw r.err(`cbor/lengthArray wrong length=${ai}`);
+      const row = CBOR_LIMITS[ai];
+      // RFC 8949 §3 reserves 28..30; reject malformed array/map heads before table indexing.
+      if (!row) throw r.err(`cbor/lengthArray wrong length=${ai}`);
+      const lenCoder = row[2];
       return P.array(lenCoder, inner).decodeStream(r);
     },
   });
@@ -125,7 +136,8 @@ const cborLength = <T>(
       }
       for (const ai in CBOR_LIMITS) {
         const [limit, _, lenCoder] = CBOR_LIMITS[ai];
-        if (bytes.length < limit) {
+        // RFC 8949 §4.2.1: bytes/text lengths 24..255 use uint8, so exact limits stay in-row.
+        if (bytes.length <= limit) {
           INFO.encodeStream(w, Number(ai));
           lenCoder.encodeStream(w, bytes.length);
           w.bytes(bytes);
@@ -138,12 +150,15 @@ const cborLength = <T>(
       const ai = INFO.decodeStream(r);
       if (ai < 24) return fn(ai).decodeStream(r);
       if (ai === 31) return P.array(new Uint8Array([0xff]), def).decodeStream(r);
-      const lenCoder = CBOR_LIMITS[ai][2];
-      if (!lenCoder) throw r.err(`cbor/length wrong length=${ai}`);
+      const row = CBOR_LIMITS[ai];
+      // RFC 8949 §3 reserves 28..30; reject malformed bytes/text heads before table indexing.
+      if (!row) throw r.err(`cbor/length wrong length=${ai}`);
+      const lenCoder = row[2];
       return fn(lenCoder).decodeStream(r);
     },
   });
 
+// Generic f8 xx simple values are currently not surfaced through this JS API.
 const cborSimple: P.CoderType<boolean | null | undefined | number> = P.wrap({
   encodeStream(w, value) {
     if (value === false) return INFO.encodeStream(w, 20);
@@ -151,7 +166,8 @@ const cborSimple: P.CoderType<boolean | null | undefined | number> = P.wrap({
     if (value === null) return INFO.encodeStream(w, 22);
     if (value === undefined) return INFO.encodeStream(w, 23);
     if (typeof value !== 'number') throw w.err(`cbor/simple: wrong value type=${typeof value}`);
-    // Basic values encoded as f16
+    // RFC 8949 §4.2.1 requires the shortest form that preserves the value.
+    // JS has no baseline float16, so only common binary16 specials are hand-encoded.
     if (isNegZero(value) || Number.isNaN(value) || value === Infinity || value === -Infinity) {
       INFO.encodeStream(w, 25);
       return F16BE.encodeStream(w, value);
@@ -189,75 +205,80 @@ export type CborValue =
   | { TAG: 'tag'; data: [CborValue, CborValue] };
 
 const cborValue: P.CoderType<CborValue> = P.mappedTag(P.bits(3), {
-  uint: [0, cborUint], // An unsigned integer in the range 0..264-1 inclusive.
-  negint: [1, cborNegint], // A negative integer in the range -264..-1 inclusive
+  uint: [0, cborUint], // An unsigned integer in the range 0..2^64-1 inclusive.
+  negint: [1, cborNegint], // A negative integer in the range -2^64..-1 inclusive
   bytes: [2, P.lazy(() => cborLength(P.bytes, cborValue))], // A byte string.
   string: [3, P.lazy(() => cborLength(P.string, cborValue))], // A text string (utf8)
   array: [4, cborArrLength(P.lazy(() => cborValue))], // An array of data items
-  map: [5, P.lazy(() => cborArrLength(P.tuple([cborValue, cborValue])))], // A map of pairs of data items
-  tag: [6, P.tuple([cborUint, P.lazy(() => cborValue)] as const)], // A tagged data item ("tag") whose tag number
-  simple: [7, cborSimple], // Floating-point numbers and simple values, as well as the "break" stop code
+  map: [5, P.lazy(() => cborArrLength(P.tuple([cborValue, cborValue])))], // Map pairs.
+  tag: [6, P.tuple([cborUint, P.lazy(() => cborValue)] as const)], // Tagged item.
+  simple: [7, cborSimple], // Floats, simple values, and the "break" stop code.
 });
 
-export const CBOR: P.CoderType<any> = P.apply(cborValue, {
-  encode(from: CborValue): any {
-    let value = from.data;
-    if (from.TAG === 'bytes') {
-      if (utils.isBytes(value)) return value;
-      const chunks = [];
-      if (!Array.isArray(value))
-        throw new Error(`CBOR: wrong indefinite-length bytestring=${value}`);
-      for (const c of value as any) {
-        if (c.TAG !== 'bytes' || !utils.isBytes(c.data))
-          throw new Error(`CBOR: wrong indefinite-length bytestring=${c}`);
-        chunks.push(c.data);
+export const CBOR: P.CoderType<any> = /* @__PURE__ */ Object.freeze(
+  P.apply(cborValue, {
+    encode(from: TArg<CborValue>): any {
+      let value = from.data;
+      if (from.TAG === 'bytes') {
+        if (utils.isBytes(value)) return value;
+        const chunks = [];
+        if (!Array.isArray(value))
+          throw new Error(`CBOR: wrong indefinite-length bytestring=${value}`);
+        for (const c of value as any) {
+          if (c.TAG !== 'bytes' || !utils.isBytes(c.data))
+            throw new Error(`CBOR: wrong indefinite-length bytestring=${c}`);
+          chunks.push(c.data);
+        }
+        return utils.concatBytes(...chunks);
       }
-      return utils.concatBytes(...chunks);
-    }
-    if (from.TAG === 'string') {
-      if (typeof value === 'string') return value;
-      if (!Array.isArray(value)) throw new Error(`CBOR: wrong indefinite-length string=${value}`);
-      let res = '';
-      for (const c of value as any) {
-        if (c.TAG !== 'string' || typeof c.data !== 'string')
-          throw new Error(`CBOR: wrong indefinite-length string=${c}`);
-        res += c.data;
+      if (from.TAG === 'string') {
+        if (typeof value === 'string') return value;
+        if (!Array.isArray(value)) throw new Error(`CBOR: wrong indefinite-length string=${value}`);
+        let res = '';
+        for (const c of value as any) {
+          if (c.TAG !== 'string' || typeof c.data !== 'string')
+            throw new Error(`CBOR: wrong indefinite-length string=${c}`);
+          res += c.data;
+        }
+        return res;
       }
-      return res;
-    }
-    if (from.TAG === 'array' && Array.isArray(value)) value = value.map((i: any) => this.encode(i));
-    if (from.TAG === 'map' && typeof value === 'object' && value !== null) {
-      return Object.fromEntries(
-        (from.data as any).map(([k, v]: [any, any]) => [this.encode(k), this.encode(v)])
-      );
-    }
-    if (from.TAG === 'tag') throw new Error('not implemented');
-    return value;
-  },
-  decode(data: any): any {
-    if (typeof data === 'bigint') {
-      return data < 0n ? { TAG: 'negint', data } : { TAG: 'uint', data };
-    }
-    if (typeof data === 'string') return { TAG: 'string', data };
-    if (utils.isBytes(data)) return { TAG: 'bytes', data };
-    if (Array.isArray(data)) return { TAG: 'array', data: data.map((i) => this.decode(i)) };
-    if (typeof data === 'number' && Number.isSafeInteger(data) && !isNegZero(data)) {
-      return data < 0 ? { TAG: 'negint', data } : { TAG: 'uint', data };
-    }
-    if (
-      typeof data === 'boolean' ||
-      typeof data === 'number' ||
-      data === null ||
-      data === undefined
-    ) {
-      return { TAG: 'simple', data: data };
-    }
-    if (typeof data === 'object') {
-      return {
-        TAG: 'map',
-        data: Object.entries(data).map((kv) => kv.map((i) => this.decode(i))),
-      };
-    }
-    throw new Error('unknown type');
-  },
-});
+      if (from.TAG === 'array' && Array.isArray(value))
+        value = value.map((i: any) => this.encode(i));
+      if (from.TAG === 'map' && typeof value === 'object' && value !== null) {
+        return Object.fromEntries(
+          (from.data as any).map(([k, v]: [any, any]) => [this.encode(k), this.encode(v)])
+        );
+      }
+      if (from.TAG === 'tag') throw new Error('not implemented');
+      return value;
+    },
+    decode(data: any): any {
+      if (typeof data === 'bigint') {
+        return data < _0n ? { TAG: 'negint', data } : { TAG: 'uint', data };
+      }
+      if (typeof data === 'string') return { TAG: 'string', data };
+      if (utils.isBytes(data)) return { TAG: 'bytes', data };
+      if (Array.isArray(data)) return { TAG: 'array', data: data.map((i) => this.decode(i)) };
+      if (typeof data === 'number' && Number.isSafeInteger(data) && !isNegZero(data)) {
+        return data < 0 ? { TAG: 'negint', data } : { TAG: 'uint', data };
+      }
+      if (
+        typeof data === 'boolean' ||
+        typeof data === 'number' ||
+        data === null ||
+        data === undefined
+      ) {
+        return { TAG: 'simple', data: data };
+      }
+      if (typeof data === 'object') {
+        // RFC 8949 §4.2.1 requires bytewise-sorted map keys for deterministic encoding.
+        // Ord JSON metadata preserves input order, so keep caller order here.
+        return {
+          TAG: 'map',
+          data: Object.entries(data).map((kv) => kv.map((i) => this.decode(i))),
+        };
+      }
+      throw new Error('unknown type');
+    },
+  })
+);
